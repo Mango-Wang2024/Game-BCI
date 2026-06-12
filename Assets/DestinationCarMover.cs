@@ -19,15 +19,14 @@ public class DestinationCarMover : MonoBehaviour
 
     public void SetDestination(int index)
     {
-        if (destinationTiles == null || index >= destinationTiles.Length)
+        if (destinationTiles == null || index < 0 || index >= destinationTiles.Length)
+        {
+            Debug.LogWarning("Destination index outside range: " + index);
             return;
+        }
 
         HasArrived = false;
         currentDestination = destinationTiles[index];
-
-        CvepTileFlasher flasher = GetComponent<CvepTileFlasher>();
-        if (flasher != null)
-            flasher.StopFlashing();
     }
 
     void MoveCar()

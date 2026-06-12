@@ -11,6 +11,18 @@ public class CvepCodeData
     public int[] code1;
     public int[] code2;
     public int[] code3;
+    public int[] code4;
+    public int[] code5;
+    public int[] code6;
+    public int[] code7;
+    public int[] code8;
+    public int[] code9;
+    public int[] code10;
+    public int[] code11;
+    public int[] code12;
+    public int[] code13;
+    public int[] code14;
+    public int[] code15;
 }
 
 public class CvepTileFlasher : MonoBehaviour
@@ -41,13 +53,14 @@ public class CvepTileFlasher : MonoBehaviour
 
         codeData = JsonUtility.FromJson<CvepCodeData>(json.text);
 
-        codes = new int[][]
+        codes = BuildCodeArray();
+
+        if (destinationTiles == null)
         {
-            codeData.code0,
-            codeData.code1,
-            codeData.code2,
-            codeData.code3
-        };
+            Debug.LogError("No destination tiles assigned to CvepTileFlasher.");
+            tileRenderers = new Renderer[0];
+            return;
+        }
 
         tileRenderers = new Renderer[destinationTiles.Length];
 
@@ -70,7 +83,7 @@ public class CvepTileFlasher : MonoBehaviour
 
     public void StartFlashing()
     {
-        if (codeData == null || codes == null)
+        if (codeData == null || codes == null || codes.Length == 0)
         {
             return;
         }
@@ -113,8 +126,13 @@ public class CvepTileFlasher : MonoBehaviour
 
         frameTimer -= frameDuration;
 
-        for (int i = 0; i < destinationTiles.Length && i < codes.Length; i++)
+        for (int i = 0; i < tileRenderers.Length && i < codes.Length; i++)
         {
+            if (codes[i] == null || codes[i].Length == 0)
+            {
+                continue;
+            }
+
             int bit = codes[i][frameIndex % codeData.codeLength];
 
             if (tileRenderers[i] != null)
@@ -124,6 +142,40 @@ public class CvepTileFlasher : MonoBehaviour
         }
 
         frameIndex++;
+    }
+
+    int[][] BuildCodeArray()
+    {
+        int[][] allCodes = new int[][]
+        {
+            codeData.code0,
+            codeData.code1,
+            codeData.code2,
+            codeData.code3,
+            codeData.code4,
+            codeData.code5,
+            codeData.code6,
+            codeData.code7,
+            codeData.code8,
+            codeData.code9,
+            codeData.code10,
+            codeData.code11,
+            codeData.code12,
+            codeData.code13,
+            codeData.code14,
+            codeData.code15
+        };
+
+        int tileCount = destinationTiles != null ? destinationTiles.Length : 0;
+        int nCodes = Mathf.Min(tileCount, allCodes.Length);
+        int[][] selectedCodes = new int[nCodes][];
+
+        for (int i = 0; i < nCodes; i++)
+        {
+            selectedCodes[i] = allCodes[i];
+        }
+
+        return selectedCodes;
     }
 
     void SetAllTiles(Material material)

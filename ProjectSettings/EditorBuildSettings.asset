@@ -8,4 +8,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/MobileUIButtons/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/MobileUIButtons/Scenes/BCI_Car_Demo.unity
+    guid: 9407cd9f5e4c24204a4b136156ea3390
   m_configObjects: {}

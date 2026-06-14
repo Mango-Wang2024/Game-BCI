@@ -27,11 +27,14 @@ public class CvepCodeData
 
 public class CvepTileFlasher : MonoBehaviour
 {
+    private const int MaxTargetCount = 16;
+
     public Transform[] destinationTiles;
     public Material tileDarkMaterial;
     public Material tileBrightMaterial;
     public Material tileCueMaterial;
     public Material tileFeedbackMaterial;
+    public bool sortDestinationTilesByName = true;
 
     private CvepCodeData codeData;
     private int[][] codes;
@@ -52,15 +55,16 @@ public class CvepTileFlasher : MonoBehaviour
         }
 
         codeData = JsonUtility.FromJson<CvepCodeData>(json.text);
+        NormalizeDestinationTiles();
 
-        codes = BuildCodeArray();
-
-        if (destinationTiles == null)
+        if (destinationTiles == null || destinationTiles.Length == 0)
         {
             Debug.LogError("No destination tiles assigned to CvepTileFlasher.");
             tileRenderers = new Renderer[0];
             return;
         }
+
+        codes = BuildCodeArray();
 
         tileRenderers = new Renderer[destinationTiles.Length];
 
@@ -166,7 +170,7 @@ public class CvepTileFlasher : MonoBehaviour
             codeData.code15
         };
 
-        int tileCount = destinationTiles != null ? destinationTiles.Length : 0;
+        int tileCount = destinationTiles != null ? Mathf.Min(destinationTiles.Length, MaxTargetCount) : 0;
         int nCodes = Mathf.Min(tileCount, allCodes.Length);
         int[][] selectedCodes = new int[nCodes][];
 
@@ -176,6 +180,80 @@ public class CvepTileFlasher : MonoBehaviour
         }
 
         return selectedCodes;
+    }
+
+    void NormalizeDestinationTiles()
+    {
+        if (destinationTiles == null || destinationTiles.Length == 0)
+        {
+            destinationTiles = FindDestinationTilesByName();
+        }
+
+        if (sortDestinationTilesByName)
+        {
+            Array.Sort(destinationTiles, CompareTileNames);
+        }
+
+        if (destinationTiles.Length <= MaxTargetCount)
+        {
+            return;
+        }
+
+        Transform[] firstTargets = new Transform[MaxTargetCount];
+        Array.Copy(destinationTiles, firstTargets, MaxTargetCount);
+        destinationTiles = firstTargets;
+    }
+
+    Transform[] FindDestinationTilesByName()
+    {
+        Transform[] tiles = new Transform[MaxTargetCount];
+        int foundCount = 0;
+
+        for (int i = 0; i < MaxTargetCount; i++)
+        {
+            GameObject tileObject = GameObject.Find("DestinationTile_" + i);
+            if (tileObject != null)
+            {
+                tiles[i] = tileObject.transform;
+                foundCount++;
+            }
+        }
+
+        if (foundCount == 0)
+        {
+            return new Transform[0];
+        }
+
+        return tiles;
+    }
+
+    int CompareTileNames(Transform left, Transform right)
+    {
+        int leftIndex = GetTrailingNumber(left != null ? left.name : "");
+        int rightIndex = GetTrailingNumber(right != null ? right.name : "");
+        return leftIndex.CompareTo(rightIndex);
+    }
+
+    int GetTrailingNumber(string text)
+    {
+        int multiplier = 1;
+        int value = 0;
+        bool foundDigit = false;
+
+        for (int i = text.Length - 1; i >= 0; i--)
+        {
+            char ch = text[i];
+            if (ch < '0' || ch > '9')
+            {
+                break;
+            }
+
+            foundDigit = true;
+            value += (ch - '0') * multiplier;
+            multiplier *= 10;
+        }
+
+        return foundDigit ? value : int.MaxValue;
     }
 
     void SetAllTiles(Material material)

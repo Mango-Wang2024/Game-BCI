@@ -12,8 +12,23 @@ public enum BciRunMode
     Calibration
 }
 
+public enum BciInteractionMode
+{
+    Game,
+    Test
+}
+
+public enum BciTestDisplayMode
+{
+    OfflineNTrain,
+    OnlineNTrain,
+    ZeroTrain
+}
+
 public class BciGameTrialManager : MonoBehaviour
 {
+    private const int UnityTargetCount = 16;
+
     public CvepTileFlasher flasher;
     public UdpMarkerSender markerSender;
     public UdpDecoderReceiver decoderReceiver;
@@ -34,33 +49,50 @@ public class BciGameTrialManager : MonoBehaviour
     public Material tileSelectionMaterial;
     public Material tileDriveMaterial;
 
+    public bool showTileNumberLabels = true;
+    public Color tileNumberLabelColor = Color.white;
+    public float tileNumberLabelFontSize = 14f;
+    public float tileNumberLabelHeight = 0.08f;
+    public float minimumTileNumberLabelFontSize = 14f;
+
     public TMP_Text statusText;
+    [HideInInspector]
     public BciRunMode runMode = BciRunMode.OnlineGame;
+    public BciInteractionMode interactionMode = BciInteractionMode.Game;
+    [HideInInspector]
+    public BciTestDisplayMode testDisplayMode = BciTestDisplayMode.ZeroTrain;
+    public TMP_Text testOverlayText;
+    public Color testOverlayTextColor = Color.black;
+    public int testOverlayFontSize = 28;
+    public Vector2 testOverlayOffset = new Vector2(24f, -90f);
     public string waitingText = "Waiting...";
     public string pressStartText = "Press C to start";
     public string recognizingText = "Start recognizing the target";
     public string movingText = "Moving to the destination";
     public string finishedText = "Finished";
 
-    public int totalTrials = 10;
+    public int totalTrials = 16;
     public int calibrationTrials = 16;
+    public bool forceSixteenTargetLayout = true;
     public float firstReadySeconds = 5f;
-    public float interTrialSeconds = 2f;
+    public float interTrialSeconds = 1f;
     public float cueSeconds = 0.7f;
     public float trialDurationSeconds = 4.2f;
-    public float decoderWaitSeconds = 2f;
+    public bool useZeroTrainingWarmUp = true;
+    public float zeroTrainingWarmUpSeconds = 8.4f;
+    public float decoderWaitSeconds = 1f;
     public float feedbackSeconds = 0.7f;
     public float postArrivalDriveViewSeconds = 0.5f;
     public bool enableKeyboardDebug = true;
     public bool useCue = true;
-    public bool useBalancedRandomCueTargets = true;
+    public bool useBalancedRandomCueTargets = false;
     public int randomSeed = -1;
-    public int[] cueTargets = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    public int[] cueTargets = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
     public bool enableOnlineAccuracyPlot = true;
     public float accuracyPlotDelaySeconds = 3f;
     public string accuracyModeLabel = "Zero-training";
     public string accuracyOutputDirectory = "/Users/wang/dp-cvep-1/cvep_speller_env/data/online_accuracy";
-    public int[] onlineAccuracyTrueTargets = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    public int[] onlineAccuracyTrueTargets = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
 
     public string startTrialMarker = "start_trial";
     public string stopTrialMarker = "stop_trial";
@@ -72,6 +104,10 @@ public class BciGameTrialManager : MonoBehaviour
     private bool isDebugMoving = false;
     private bool canStart = false;
     private int[] runtimeCueTargets;
+    private TextMeshProUGUI[] tileNumberLabels;
+    private Canvas tileNumberLabelCanvas;
+    private TMP_Text runtimeTestOverlayText;
+    private string testOverlayDetailText = "";
     private readonly List<AccuracyTrial> onlineAccuracyRows = new List<AccuracyTrial>();
 
     private struct AccuracyTrial
@@ -89,11 +125,19 @@ public class BciGameTrialManager : MonoBehaviour
 
     void Start()
     {
+        ApplySixteenTargetDefaults();
+        CreateTileNumberLabels();
         SetSelectionView();
+        UpdateTestOverlay();
         StartCoroutine(ShowStartPrompt());
     }
 
     public void PrepareForMode(BciRunMode mode)
+    {
+        PrepareForMode(mode, testDisplayMode);
+    }
+
+    public void PrepareForMode(BciRunMode mode, BciTestDisplayMode displayMode)
     {
         if (isRunning)
         {
@@ -103,12 +147,16 @@ public class BciGameTrialManager : MonoBehaviour
 
         StopAllCoroutines();
         runMode = mode;
+        testDisplayMode = displayMode;
         canStart = false;
         runtimeCueTargets = null;
+        ApplySixteenTargetDefaults();
+        CreateTileNumberLabels();
         flasher.ClearHighlight();
         SetSelectionView();
+        UpdateTestOverlay();
         StartCoroutine(ShowStartPrompt());
-        Debug.Log("Prepared Unity BCI mode: " + runMode);
+        Debug.Log("Prepared Unity BCI mode: " + runMode + " / " + testDisplayMode);
     }
 
     void Update()
@@ -118,7 +166,7 @@ public class BciGameTrialManager : MonoBehaviour
             StartCoroutine(RunTrials());
         }
 
-        if (enableKeyboardDebug && !isRunning && !isDebugMoving)
+        if (enableKeyboardDebug && !IsTestMode() && !isRunning && !isDebugMoving)
         {
             int debugDestination = GetDebugDestinationKey();
             if (debugDestination >= 0)
@@ -134,10 +182,13 @@ public class BciGameTrialManager : MonoBehaviour
     {
         isRunning = true;
         canStart = false;
+        ApplySixteenTargetDefaults();
         PrepareCueTargets();
         onlineAccuracyRows.Clear();
         SetSelectionView();
         SetStatusText("");
+        testOverlayDetailText = "";
+        UpdateTestOverlay();
 
         if (runMode == BciRunMode.Calibration)
         {
@@ -151,7 +202,7 @@ public class BciGameTrialManager : MonoBehaviour
         SetSelectionView();
         SetStatusText(finishedText);
 
-        if (runMode == BciRunMode.OnlineGame && enableOnlineAccuracyPlot)
+        if (enableOnlineAccuracyPlot && onlineAccuracyRows.Count > 0)
         {
             yield return StartCoroutine(SaveOnlineAccuracyPlotAfterDelay());
         }
@@ -167,7 +218,7 @@ public class BciGameTrialManager : MonoBehaviour
 
             if (trialId > 1)
             {
-                SetStatusText(waitingText);
+                SetStatusText("");
                 yield return new WaitForSeconds(interTrialSeconds);
                 SetStatusText("");
             }
@@ -175,7 +226,7 @@ public class BciGameTrialManager : MonoBehaviour
             SetStatusText(recognizingText);
             markerSender.SendMarker(startTrialMarker, trialId);
             flasher.StartFlashing();
-            yield return new WaitForSeconds(trialDurationSeconds);
+            yield return new WaitForSeconds(GetOnlineTrialDuration(trialId));
             flasher.StopFlashing();
             markerSender.SendMarker(forceDecisionMarker, trialId);
 
@@ -196,6 +247,7 @@ public class BciGameTrialManager : MonoBehaviour
             {
                 Debug.LogWarning("No decoder result received for trial " + trialId);
                 RecordOnlineAccuracyTrial(trialId, GetOnlineAccuracyTrueTarget(trialId), -1, false);
+                SetRecognizedTargetOverlay(trialId, -1, false);
                 continue;
             }
 
@@ -203,14 +255,21 @@ public class BciGameTrialManager : MonoBehaviour
             {
                 Debug.LogWarning("Ignoring decoder result outside Unity target range: " + decodedClass);
                 RecordOnlineAccuracyTrial(trialId, GetOnlineAccuracyTrueTarget(trialId), decodedClass, true);
+                SetRecognizedTargetOverlay(trialId, decodedClass, true);
                 continue;
             }
 
             RecordOnlineAccuracyTrial(trialId, GetOnlineAccuracyTrueTarget(trialId), decodedClass, true);
+            SetRecognizedTargetOverlay(trialId, decodedClass, true);
 
             flasher.ShowFeedback(decodedClass);
             yield return new WaitForSeconds(feedbackSeconds);
             flasher.ClearHighlight();
+
+            if (IsTestMode())
+            {
+                continue;
+            }
 
             SetDriveView();
             SetStatusText(movingText);
@@ -233,12 +292,13 @@ public class BciGameTrialManager : MonoBehaviour
 
             if (trialId > 1)
             {
-                SetStatusText(waitingText);
+                SetStatusText("");
                 yield return new WaitForSeconds(interTrialSeconds);
                 SetStatusText("");
             }
 
             int cueTarget = GetCueTarget(trialId);
+            SetCalibrationCueOverlay(trialId, cueTarget);
 
             if (useCue)
             {
@@ -261,6 +321,11 @@ public class BciGameTrialManager : MonoBehaviour
 
     IEnumerator RunDebugDriveMove(int destinationIndex)
     {
+        if (IsTestMode())
+        {
+            yield break;
+        }
+
         if (!IsValidTarget(destinationIndex))
         {
             Debug.LogWarning("Debug destination outside Unity target range: " + destinationIndex);
@@ -303,6 +368,8 @@ public class BciGameTrialManager : MonoBehaviour
             SetAudioListener(selectionCamera, true);
         }
 
+        SetTileNumberLabelsVisible(true);
+
         if (driveCamera != null)
         {
             driveCamera.enabled = false;
@@ -319,6 +386,8 @@ public class BciGameTrialManager : MonoBehaviour
             selectionCamera.enabled = false;
             SetAudioListener(selectionCamera, false);
         }
+
+        SetTileNumberLabelsVisible(false);
 
         if (driveCamera != null)
         {
@@ -434,12 +503,293 @@ public class BciGameTrialManager : MonoBehaviour
         );
     }
 
+    void LateUpdate()
+    {
+        UpdateTileNumberLabels(GetDestinationTiles());
+    }
+
+    void CreateTileNumberLabels()
+    {
+        Transform[] tiles = GetDestinationTiles();
+        if (!showTileNumberLabels || tiles == null || tiles.Length == 0)
+        {
+            SetTileNumberLabelsVisible(false);
+            return;
+        }
+
+        if (tileNumberLabels != null && tileNumberLabels.Length == tiles.Length)
+        {
+            UpdateTileNumberLabels(tiles);
+            return;
+        }
+
+        DestroyTileNumberLabels();
+        tileNumberLabels = new TextMeshProUGUI[tiles.Length];
+        Canvas canvas = GetTileNumberLabelCanvas();
+
+        for (int i = 0; i < tiles.Length; i++)
+        {
+            if (tiles[i] == null)
+            {
+                continue;
+            }
+
+            GameObject labelObject = new GameObject("TileLabel_" + (i + 1));
+            labelObject.transform.SetParent(canvas.transform, false);
+            TextMeshProUGUI label = labelObject.AddComponent<TextMeshProUGUI>();
+            label.text = (i + 1).ToString();
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = tileNumberLabelColor;
+            label.fontSize = GetTileNumberLabelFontSize();
+            label.fontStyle = FontStyles.Normal;
+            label.enableWordWrapping = false;
+            label.raycastTarget = false;
+            label.rectTransform.sizeDelta = new Vector2(56f, 28f);
+            tileNumberLabels[i] = label;
+        }
+
+        UpdateTileNumberLabels(tiles);
+    }
+
+    void DestroyTileNumberLabels()
+    {
+        if (tileNumberLabels == null)
+        {
+            return;
+        }
+
+        foreach (TextMeshProUGUI label in tileNumberLabels)
+        {
+            if (label != null)
+            {
+                Destroy(label.gameObject);
+            }
+        }
+
+        tileNumberLabels = null;
+    }
+
+    void UpdateTileNumberLabels(Transform[] tiles)
+    {
+        for (int i = 0; i < tileNumberLabels.Length && i < tiles.Length; i++)
+        {
+            if (tileNumberLabels[i] == null || tiles[i] == null)
+            {
+                continue;
+            }
+
+            tileNumberLabels[i].text = (i + 1).ToString();
+            tileNumberLabels[i].color = tileNumberLabelColor;
+            tileNumberLabels[i].fontSize = GetTileNumberLabelFontSize();
+            tileNumberLabels[i].fontStyle = FontStyles.Normal;
+            Renderer tileRenderer = tiles[i].GetComponent<Renderer>();
+            Vector3 labelPosition = tiles[i].position;
+            if (tileRenderer != null)
+            {
+                labelPosition = tileRenderer.bounds.center;
+                labelPosition.y = tileRenderer.bounds.max.y;
+            }
+
+            PositionTileNumberLabel(tileNumberLabels[i], labelPosition + Vector3.up * tileNumberLabelHeight);
+        }
+
+        SetTileNumberLabelsVisible(showTileNumberLabels && selectionCamera != null && selectionCamera.enabled);
+    }
+
+    float GetTileNumberLabelFontSize()
+    {
+        return Mathf.Max(tileNumberLabelFontSize, minimumTileNumberLabelFontSize, 14f);
+    }
+
+    Canvas GetTileNumberLabelCanvas()
+    {
+        if (tileNumberLabelCanvas != null)
+        {
+            return tileNumberLabelCanvas;
+        }
+
+        tileNumberLabelCanvas = FindObjectOfType<Canvas>();
+        if (tileNumberLabelCanvas != null)
+        {
+            return tileNumberLabelCanvas;
+        }
+
+        GameObject canvasObject = new GameObject("TileNumberLabelCanvas");
+        tileNumberLabelCanvas = canvasObject.AddComponent<Canvas>();
+        tileNumberLabelCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        return tileNumberLabelCanvas;
+    }
+
+    void PositionTileNumberLabel(TextMeshProUGUI label, Vector3 worldPosition)
+    {
+        if (label == null || selectionCamera == null)
+        {
+            return;
+        }
+
+        Vector3 screenPoint = selectionCamera.WorldToScreenPoint(worldPosition);
+        bool isVisible = screenPoint.z > 0f && selectionCamera.enabled;
+        label.gameObject.SetActive(isVisible && showTileNumberLabels);
+        if (!isVisible)
+        {
+            return;
+        }
+
+        RectTransform canvasRect = tileNumberLabelCanvas.GetComponent<RectTransform>();
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            canvasRect,
+            screenPoint,
+            null,
+            out localPoint
+        );
+        label.rectTransform.anchoredPosition = localPoint;
+    }
+
+    void SetTileNumberLabelsVisible(bool visible)
+    {
+        if (tileNumberLabels == null)
+        {
+            return;
+        }
+
+        bool shouldShow = visible && showTileNumberLabels;
+        foreach (TextMeshProUGUI label in tileNumberLabels)
+        {
+            if (label != null)
+            {
+                label.gameObject.SetActive(shouldShow);
+            }
+        }
+    }
+
+    Transform[] GetDestinationTiles()
+    {
+        if (flasher != null && flasher.destinationTiles != null && flasher.destinationTiles.Length > 0)
+        {
+            return flasher.destinationTiles;
+        }
+
+        if (carMover != null && carMover.destinationTiles != null && carMover.destinationTiles.Length > 0)
+        {
+            return carMover.destinationTiles;
+        }
+
+        Transform[] tiles = new Transform[UnityTargetCount];
+        int foundCount = 0;
+        for (int i = 0; i < UnityTargetCount; i++)
+        {
+            GameObject tileObject = GameObject.Find("DestinationTile_" + i);
+            if (tileObject != null)
+            {
+                tiles[i] = tileObject.transform;
+                foundCount++;
+            }
+        }
+
+        return foundCount > 0 ? tiles : null;
+    }
+
     void SetStatusText(string text)
     {
         if (statusText != null)
         {
             statusText.text = text;
         }
+
+        UpdateTestOverlay();
+    }
+
+    bool IsTestMode()
+    {
+        return interactionMode == BciInteractionMode.Test;
+    }
+
+    void SetRecognizedTargetOverlay(int trialId, int decodedClass, bool hasPrediction)
+    {
+        string predictionText = hasPrediction ? (decodedClass + 1).ToString() : "No output";
+        testOverlayDetailText = predictionText;
+        UpdateTestOverlay();
+    }
+
+    void SetCalibrationCueOverlay(int trialId, int cueTarget)
+    {
+        testOverlayDetailText = "Trial " + trialId + " cue target: " + (cueTarget + 1);
+        UpdateTestOverlay();
+    }
+
+    void UpdateTestOverlay()
+    {
+        TMP_Text overlay = GetTestOverlayText();
+        if (overlay == null)
+        {
+            return;
+        }
+
+        overlay.gameObject.SetActive(true);
+
+        overlay.text = string.IsNullOrWhiteSpace(testOverlayDetailText)
+            ? GetTestDisplayModeLabel()
+            : GetTestDisplayModeLabel() + "\n" + testOverlayDetailText;
+    }
+
+    TMP_Text GetTestOverlayText()
+    {
+        if (testOverlayText != null)
+        {
+            return testOverlayText;
+        }
+
+        if (runtimeTestOverlayText != null)
+        {
+            return runtimeTestOverlayText;
+        }
+
+        Canvas canvas = FindObjectOfType<Canvas>();
+        if (canvas == null)
+        {
+            GameObject canvasObject = new GameObject("BciTestOverlayCanvas");
+            canvas = canvasObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        }
+
+        GameObject textObject = new GameObject("BciTestOverlayText");
+        textObject.transform.SetParent(canvas.transform, false);
+        TextMeshProUGUI text = textObject.AddComponent<TextMeshProUGUI>();
+        text.alignment = TextAlignmentOptions.TopLeft;
+        text.color = testOverlayTextColor;
+        text.fontSize = testOverlayFontSize;
+        text.enableWordWrapping = false;
+
+        RectTransform rect = text.rectTransform;
+        rect.anchorMin = new Vector2(0f, 1f);
+        rect.anchorMax = new Vector2(0f, 1f);
+        rect.pivot = new Vector2(0f, 1f);
+        rect.anchoredPosition = testOverlayOffset;
+        rect.sizeDelta = new Vector2(520f, 150f);
+
+        runtimeTestOverlayText = text;
+        return runtimeTestOverlayText;
+    }
+
+    string GetTestDisplayModeLabel()
+    {
+        switch (testDisplayMode)
+        {
+            case BciTestDisplayMode.OfflineNTrain:
+                return "Offline n-train";
+            case BciTestDisplayMode.OnlineNTrain:
+                return "Online n-train";
+            case BciTestDisplayMode.ZeroTrain:
+                return "0-train";
+            default:
+                return testDisplayMode.ToString();
+        }
+    }
+
+    string GetAccuracyPlotModeLabel()
+    {
+        return GetTestDisplayModeLabel();
     }
 
     int GetCueTarget(int trialId)
@@ -457,6 +807,16 @@ public class BciGameTrialManager : MonoBehaviour
         }
 
         return 0;
+    }
+
+    float GetOnlineTrialDuration(int trialId)
+    {
+        if (useZeroTrainingWarmUp && trialId == 1)
+        {
+            return zeroTrainingWarmUpSeconds;
+        }
+
+        return trialDurationSeconds;
     }
 
     int GetOnlineAccuracyTrueTarget(int trialId)
@@ -511,14 +871,15 @@ public class BciGameTrialManager : MonoBehaviour
             : accuracyOutputDirectory.Trim();
         Directory.CreateDirectory(outputDir);
 
-        string modeLabel = string.IsNullOrWhiteSpace(accuracyModeLabel) ? "Online" : accuracyModeLabel.Trim();
+        string modeLabel = GetAccuracyPlotModeLabel();
         string modeSlug = Slugify(modeLabel);
         if (string.IsNullOrEmpty(modeSlug))
         {
             modeSlug = "online";
         }
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        string pngPath = Path.Combine(outputDir, "online_game_accuracy_" + modeSlug + "_" + timestamp + ".png");
+        string filePrefix = IsTestMode() ? "online_test_accuracy" : "online_game_accuracy";
+        string pngPath = Path.Combine(outputDir, filePrefix + "_" + modeSlug + "_" + timestamp + ".png");
 
         Texture2D plot = BuildOnlineAccuracyPngTexture();
         File.WriteAllBytes(pngPath, plot.EncodeToPNG());
@@ -780,7 +1141,7 @@ public class BciGameTrialManager : MonoBehaviour
     {
         runtimeCueTargets = null;
 
-        if (runMode != BciRunMode.Calibration || !useCue || !useBalancedRandomCueTargets)
+        if (runMode != BciRunMode.Calibration || !useCue)
         {
             return;
         }
@@ -794,6 +1155,20 @@ public class BciGameTrialManager : MonoBehaviour
         }
 
         int trialCount = GetTrialCount();
+        System.Random random = randomSeed >= 0 ? new System.Random(randomSeed) : new System.Random();
+
+        if (!useBalancedRandomCueTargets)
+        {
+            for (int i = 0; i < trialCount; i++)
+            {
+                targets.Add(random.Next(nTargets));
+            }
+
+            runtimeCueTargets = targets.ToArray();
+            Debug.Log("Unity cue target order: " + string.Join(", ", System.Array.ConvertAll(runtimeCueTargets, item => item.ToString())));
+            return;
+        }
+
         int repeats = trialCount / nTargets;
         int remainder = trialCount % nTargets;
 
@@ -811,8 +1186,6 @@ public class BciGameTrialManager : MonoBehaviour
             remainderTargets.Add(target);
         }
 
-        System.Random random = randomSeed >= 0 ? new System.Random(randomSeed) : new System.Random();
-
         Shuffle(remainderTargets, random);
         for (int i = 0; i < remainder; i++)
         {
@@ -823,6 +1196,38 @@ public class BciGameTrialManager : MonoBehaviour
         runtimeCueTargets = targets.ToArray();
 
         Debug.Log("Unity cue target order: " + string.Join(", ", System.Array.ConvertAll(runtimeCueTargets, item => item.ToString())));
+    }
+
+    void ApplySixteenTargetDefaults()
+    {
+        if (!forceSixteenTargetLayout)
+        {
+            return;
+        }
+
+        totalTrials = UnityTargetCount;
+        calibrationTrials = UnityTargetCount;
+
+        if (cueTargets == null || cueTargets.Length != UnityTargetCount)
+        {
+            cueTargets = CreateSequentialTargets();
+        }
+
+        if (onlineAccuracyTrueTargets == null || onlineAccuracyTrueTargets.Length != UnityTargetCount)
+        {
+            onlineAccuracyTrueTargets = CreateSequentialTargets();
+        }
+    }
+
+    int[] CreateSequentialTargets()
+    {
+        int[] targets = new int[UnityTargetCount];
+        for (int i = 0; i < UnityTargetCount; i++)
+        {
+            targets[i] = i;
+        }
+
+        return targets;
     }
 
     int GetTargetCount()

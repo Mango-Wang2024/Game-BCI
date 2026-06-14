@@ -125,7 +125,32 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
 
         if (normalized == "training" || normalized == "calibration")
         {
-            trialManager.PrepareForMode(BciRunMode.Calibration);
+            trialManager.PrepareForMode(BciRunMode.Calibration, BciTestDisplayMode.OfflineNTrain);
+            return;
+        }
+
+        if (
+            normalized == "online_zero"
+            || normalized == "online_zero_train"
+            || normalized == "zero"
+            || normalized == "zero_train"
+            || normalized == "0train"
+            || normalized == "0_train"
+        )
+        {
+            trialManager.PrepareForMode(BciRunMode.OnlineGame, BciTestDisplayMode.ZeroTrain);
+            return;
+        }
+
+        if (
+            normalized == "online_n_train"
+            || normalized == "online_ntrain"
+            || normalized == "n_train"
+            || normalized == "ntrain"
+            || normalized == "calibrated_online"
+        )
+        {
+            trialManager.PrepareForMode(BciRunMode.OnlineGame, BciTestDisplayMode.OnlineNTrain);
             return;
         }
 

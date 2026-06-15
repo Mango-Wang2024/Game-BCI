@@ -9,6 +9,7 @@ public class UdpMarkerSender : MonoBehaviour
     public string decoderHost = "127.0.0.1";
     public int decoderPort = 9099;
     public int lslBridgePort = 9098;
+    public bool verboseUdpLogging = false;
 
     private UdpClient udpClient;
 
@@ -37,7 +38,10 @@ public class UdpMarkerSender : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(payload);
         udpClient.Send(data, data.Length, decoderHost, decoderPort);
 
-        Debug.Log("Sent UDP marker: " + payload);
+        if (verboseUdpLogging)
+        {
+            Debug.Log("Sent UDP marker: " + payload);
+        }
     }
 
     public void SendRawMarker(string marker)
@@ -58,6 +62,9 @@ public class UdpMarkerSender : MonoBehaviour
         byte[] data = Encoding.UTF8.GetBytes(marker);
         udpClient.Send(data, data.Length, decoderHost, port);
 
-        Debug.Log("Sent UDP raw marker to port " + port + ": " + marker);
+        if (verboseUdpLogging)
+        {
+            Debug.Log("Sent UDP raw marker to port " + port + ": " + marker);
+        }
     }
 }

@@ -18,6 +18,16 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
 
     void Start()
     {
+        if (trialManager == null)
+        {
+            trialManager = FindObjectOfType<BciGameTrialManager>();
+        }
+
+        if (trialManager == null)
+        {
+            Debug.LogError("[CHECK] Unity frontend command receiver has no BciGameTrialManager assigned.");
+        }
+
         StartReceiver();
     }
 
@@ -91,6 +101,8 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
             {
                 byte[] data = udpClient.Receive(ref remoteEndPoint);
                 string message = Encoding.UTF8.GetString(data).Trim();
+
+                Debug.Log("[CHECK] Unity frontend UDP command packet received: " + message);
 
                 lock (lockObject)
                 {

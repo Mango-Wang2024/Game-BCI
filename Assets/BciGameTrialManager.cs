@@ -75,17 +75,17 @@ public class BciGameTrialManager : MonoBehaviour
     public int calibrationTrials = 16;
     public bool forceSixteenTargetLayout = true;
     public float firstReadySeconds = 5f;
-    public float interTrialSeconds = 1f;
+    public float interTrialSeconds = 0.5f;
     public float cueSeconds = 0.7f;
     public float trialDurationSeconds = 4.2f;
     public bool useZeroTrainingWarmUp = true;
     public float zeroTrainingWarmUpSeconds = 8.4f;
-    public float decoderWaitSeconds = 1f;
+    public float decoderWaitSeconds = 2f;
     public float feedbackSeconds = 0.7f;
-    public float postArrivalDriveViewSeconds = 0.5f;
+    public float postArrivalDriveViewSeconds = 0f;
     public bool enableKeyboardDebug = true;
     public bool useCue = true;
-    public bool useBalancedRandomCueTargets = false;
+    public bool useBalancedRandomCueTargets = true;
     public int randomSeed = -1;
     public int[] cueTargets = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
     public bool enableOnlineAccuracyPlot = true;
@@ -108,6 +108,7 @@ public class BciGameTrialManager : MonoBehaviour
     private Canvas tileNumberLabelCanvas;
     private TMP_Text runtimeTestOverlayText;
     private string testOverlayDetailText = "";
+    private bool isSelectionViewActive = true;
     private readonly List<AccuracyTrial> onlineAccuracyRows = new List<AccuracyTrial>();
 
     private struct AccuracyTrial
@@ -125,11 +126,23 @@ public class BciGameTrialManager : MonoBehaviour
 
     void Start()
     {
+        if (decoderReceiver == null)
+        {
+            decoderReceiver = FindObjectOfType<UdpDecoderReceiver>();
+        }
+
+        if (decoderReceiver == null)
+        {
+            Debug.LogError("[CHECK] No UdpDecoderReceiver found. Online trials cannot receive decoder outputs.");
+        }
+
         ApplySixteenTargetDefaults();
         CreateTileNumberLabels();
+        ApplyInteractionModeVisibility();
         SetSelectionView();
         UpdateTestOverlay();
-        StartCoroutine(ShowStartPrompt());
+        canStart = false;
+        SetStatusText(waitingText);
     }
 
     public void PrepareForMode(BciRunMode mode)
@@ -152,6 +165,7 @@ public class BciGameTrialManager : MonoBehaviour
         runtimeCueTargets = null;
         ApplySixteenTargetDefaults();
         CreateTileNumberLabels();
+        ApplyInteractionModeVisibility();
         flasher.ClearHighlight();
         SetSelectionView();
         UpdateTestOverlay();
@@ -183,6 +197,7 @@ public class BciGameTrialManager : MonoBehaviour
         isRunning = true;
         canStart = false;
         ApplySixteenTargetDefaults();
+        ApplyInteractionModeVisibility();
         PrepareCueTargets();
         onlineAccuracyRows.Clear();
         SetSelectionView();
@@ -212,6 +227,12 @@ public class BciGameTrialManager : MonoBehaviour
 
     IEnumerator RunOnlineGameTrials()
     {
+        if (decoderReceiver == null)
+        {
+            Debug.LogError("[CHECK] Online run stopped: no UdpDecoderReceiver is assigned.");
+            yield break;
+        }
+
         for (int trialId = 1; trialId <= GetTrialCount(); trialId++)
         {
             SetSelectionView();
@@ -224,18 +245,23 @@ public class BciGameTrialManager : MonoBehaviour
             }
 
             SetStatusText(recognizingText);
+            int trueTarget = GetOnlineAccuracyTrueTarget(trialId);
+            decoderReceiver.ClearTrialResult(trialId);
+            markerSender.SendRawMarkerToLslBridge(FormatOnlineTrialMarker(startTrialMarker, trialId, trueTarget));
             markerSender.SendMarker(startTrialMarker, trialId);
             flasher.StartFlashing();
-            yield return new WaitForSeconds(GetOnlineTrialDuration(trialId));
+            yield return StartCoroutine(WaitRealtimeSeconds(GetOnlineTrialDuration(trialId)));
             flasher.StopFlashing();
+            markerSender.SendRawMarkerToLslBridge(FormatOnlineTrialMarker(stopTrialMarker, trialId, trueTarget));
+            markerSender.SendRawMarkerToLslBridge("force_decision;trial=" + trialId);
             markerSender.SendMarker(forceDecisionMarker, trialId);
 
             int decodedClass = -1;
-            float waitUntil = Time.time + decoderWaitSeconds;
+            float waitUntil = Time.time + Mathf.Max(decoderWaitSeconds, 1.5f);
 
             while (Time.time < waitUntil)
             {
-                if (decoderReceiver.TryGetLatestClass(out decodedClass))
+                if (decoderReceiver.TryGetClassForTrial(trialId, out decodedClass))
                 {
                     break;
                 }
@@ -246,7 +272,7 @@ public class BciGameTrialManager : MonoBehaviour
             if (decodedClass < 0)
             {
                 Debug.LogWarning("No decoder result received for trial " + trialId);
-                RecordOnlineAccuracyTrial(trialId, GetOnlineAccuracyTrueTarget(trialId), -1, false);
+                RecordOnlineAccuracyTrial(trialId, trueTarget, -1, false);
                 SetRecognizedTargetOverlay(trialId, -1, false);
                 continue;
             }
@@ -254,12 +280,12 @@ public class BciGameTrialManager : MonoBehaviour
             if (!IsValidTarget(decodedClass))
             {
                 Debug.LogWarning("Ignoring decoder result outside Unity target range: " + decodedClass);
-                RecordOnlineAccuracyTrial(trialId, GetOnlineAccuracyTrueTarget(trialId), decodedClass, true);
+                RecordOnlineAccuracyTrial(trialId, trueTarget, decodedClass, true);
                 SetRecognizedTargetOverlay(trialId, decodedClass, true);
                 continue;
             }
 
-            RecordOnlineAccuracyTrial(trialId, GetOnlineAccuracyTrueTarget(trialId), decodedClass, true);
+            RecordOnlineAccuracyTrial(trialId, trueTarget, decodedClass, true);
             SetRecognizedTargetOverlay(trialId, decodedClass, true);
 
             flasher.ShowFeedback(decodedClass);
@@ -309,14 +335,19 @@ public class BciGameTrialManager : MonoBehaviour
                 markerSender.SendRawMarkerToLslBridge(cueStopMarker);
             }
 
-            SetStatusText(recognizingText);
+            SetStatusText("");
             markerSender.SendRawMarkerToLslBridge(startTrialMarker);
             flasher.StartFlashing();
-            yield return new WaitForSeconds(trialDurationSeconds);
+            yield return StartCoroutine(WaitRealtimeSeconds(trialDurationSeconds));
             flasher.StopFlashing();
             markerSender.SendRawMarkerToLslBridge(stopTrialMarker);
             SetStatusText("");
         }
+    }
+
+    string FormatOnlineTrialMarker(string marker, int trialId, int target)
+    {
+        return marker + ";trial=" + trialId + ";label=" + target + ";key=" + (target + 1);
     }
 
     IEnumerator RunDebugDriveMove(int destinationIndex)
@@ -358,8 +389,19 @@ public class BciGameTrialManager : MonoBehaviour
         canStart = true;
     }
 
+    IEnumerator WaitRealtimeSeconds(float seconds)
+    {
+        float startTime = Time.realtimeSinceStartup;
+        while (Time.realtimeSinceStartup - startTime < seconds)
+        {
+            yield return null;
+        }
+    }
+
     void SetSelectionView()
     {
+        isSelectionViewActive = true;
+        ApplyInteractionModeVisibility();
         ApplySelectionMaterials();
 
         if (selectionCamera != null)
@@ -379,6 +421,8 @@ public class BciGameTrialManager : MonoBehaviour
 
     void SetDriveView()
     {
+        isSelectionViewActive = false;
+        ApplyInteractionModeVisibility();
         ApplyDriveMaterials();
 
         if (selectionCamera != null)
@@ -705,6 +749,14 @@ public class BciGameTrialManager : MonoBehaviour
         return interactionMode == BciInteractionMode.Test;
     }
 
+    void ApplyInteractionModeVisibility()
+    {
+        if (carMover != null && carMover.car != null)
+        {
+            carMover.car.gameObject.SetActive(!IsTestMode() && !isSelectionViewActive);
+        }
+    }
+
     void SetRecognizedTargetOverlay(int trialId, int decodedClass, bool hasPrediction)
     {
         string predictionText = hasPrediction ? (decodedClass + 1).ToString() : "No output";
@@ -714,7 +766,7 @@ public class BciGameTrialManager : MonoBehaviour
 
     void SetCalibrationCueOverlay(int trialId, int cueTarget)
     {
-        testOverlayDetailText = "Trial " + trialId + " cue target: " + (cueTarget + 1);
+        testOverlayDetailText = (cueTarget + 1).ToString();
         UpdateTestOverlay();
     }
 
@@ -892,6 +944,7 @@ public class BciGameTrialManager : MonoBehaviour
     Texture2D BuildOnlineAccuracyPngTexture()
     {
         int nTrials = onlineAccuracyRows.Count;
+        string modeLabel = GetAccuracyPlotModeLabel();
         List<string> labels = GetAccuracyLabels();
         Dictionary<string, int> labelToY = new Dictionary<string, int>();
         for (int i = 0; i < labels.Count; i++)
@@ -899,12 +952,12 @@ public class BciGameTrialManager : MonoBehaviour
             labelToY[labels[i]] = i;
         }
 
-        const int width = 1000;
-        const int height = 620;
-        const int left = 90;
-        const int right = 40;
-        const int top = 80;
-        const int bottom = 90;
+        const int width = 1500;
+        const int height = 980;
+        const int left = 150;
+        const int right = 110;
+        const int top = 130;
+        const int bottom = 250;
         int plotWidth = width - left - right;
         int plotHeight = height - top - bottom;
         float trialStep = nTrials > 1 ? plotWidth / (float)(nTrials - 1) : 0f;
@@ -912,6 +965,29 @@ public class BciGameTrialManager : MonoBehaviour
 
         Texture2D texture = new Texture2D(width, height, TextureFormat.RGB24, false);
         FillTexture(texture, Color.white);
+
+        int correctCount = 0;
+        foreach (AccuracyTrial row in onlineAccuracyRows)
+        {
+            if (row.IsCorrect)
+            {
+                correctCount++;
+            }
+        }
+
+        float accuracy = nTrials > 0 ? correctCount / (float)nTrials : 0f;
+        Color textColor = new Color(0.10f, 0.10f, 0.10f);
+        DrawText(texture, modeLabel + " online accuracy", left, 28, textColor, 4);
+        DrawText(
+            texture,
+            "Accuracy: " + correctCount + "/" + nTrials + " (" + Mathf.RoundToInt(accuracy * 100f) + "%)",
+            left,
+            78,
+            textColor,
+            3
+        );
+        DrawText(texture, "Target", 18, top - 30, textColor, 3);
+        DrawText(texture, "Trial", left + plotWidth / 2 - 42, top + plotHeight + 70, textColor, 3);
 
         for (int i = 0; i < nTrials; i++)
         {
@@ -928,10 +1004,18 @@ public class BciGameTrialManager : MonoBehaviour
         {
             int y = Mathf.RoundToInt(top + plotHeight - i * yStep);
             DrawLine(texture, left, y, left + plotWidth, y, new Color(0.86f, 0.86f, 0.86f), 1);
+            DrawText(texture, labels[i], 82, y - 7, textColor, 2);
         }
 
         DrawLine(texture, left, top, left, top + plotHeight, new Color(0.15f, 0.15f, 0.15f), 2);
         DrawLine(texture, left, top + plotHeight, left + plotWidth, top + plotHeight, new Color(0.15f, 0.15f, 0.15f), 2);
+
+        for (int i = 0; i < nTrials; i++)
+        {
+            int x = Mathf.RoundToInt(left + i * trialStep);
+            DrawLine(texture, x, top + plotHeight, x, top + plotHeight + 7, new Color(0.15f, 0.15f, 0.15f), 1);
+            DrawText(texture, (i + 1).ToString(), x - 7, top + plotHeight + 18, textColor, 2);
+        }
 
         int previousTrueX = -1;
         int previousTrueY = -1;
@@ -967,9 +1051,51 @@ public class BciGameTrialManager : MonoBehaviour
             previousPredY = predY;
         }
 
-        DrawLegend(texture, width - 230, height - 58);
+        DrawLegend(texture, left + plotWidth - 470, top + plotHeight + 108);
+        DrawAccuracyTable(texture, left, top + plotHeight + 145, textColor);
         texture.Apply();
         return texture;
+    }
+
+    void DrawAccuracyTable(Texture2D texture, int x, int y, Color textColor)
+    {
+        StringBuilder trialLine = new StringBuilder("TRIAL ");
+        StringBuilder trueLine = new StringBuilder("TRUE  ");
+        StringBuilder predLine = new StringBuilder("PRED  ");
+        StringBuilder okLine = new StringBuilder("OK    ");
+
+        foreach (AccuracyTrial row in onlineAccuracyRows)
+        {
+            trialLine.Append(PadPlotCell(row.trialId.ToString()));
+            trueLine.Append(PadPlotCell(row.trueTarget >= 0 ? (row.trueTarget + 1).ToString() : "-"));
+            predLine.Append(PadPlotCell(row.hasPrediction ? (row.predictedTarget + 1).ToString() : "NO"));
+            okLine.Append(PadPlotCell(row.IsCorrect ? "Y" : "N"));
+        }
+
+        DrawText(texture, trialLine.ToString(), x, y, textColor, 2);
+        DrawText(texture, trueLine.ToString(), x, y + 28, textColor, 2);
+        DrawText(texture, predLine.ToString(), x, y + 56, new Color(0.84f, 0.37f, 0.00f), 2);
+        DrawText(texture, okLine.ToString(), x, y + 84, textColor, 2);
+    }
+
+    string PadPlotCell(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            value = "-";
+        }
+
+        if (value.Length == 1)
+        {
+            return "  " + value + " ";
+        }
+
+        if (value.Length == 2)
+        {
+            return " " + value + " ";
+        }
+
+        return value + " ";
     }
 
     List<string> GetAccuracyLabels()
@@ -1123,8 +1249,98 @@ public class BciGameTrialManager : MonoBehaviour
     {
         DrawFilledCircle(texture, x, y, 6, new Color(0.13f, 0.13f, 0.13f));
         DrawLine(texture, x + 18, y, x + 72, y, new Color(0.13f, 0.13f, 0.13f), 3);
-        DrawX(texture, x + 100, y, 7, new Color(0.84f, 0.37f, 0.00f), 3);
-        DrawLine(texture, x + 118, y, x + 172, y, new Color(0.84f, 0.37f, 0.00f), 3);
+        DrawText(texture, "True target", x + 86, y - 9, new Color(0.13f, 0.13f, 0.13f), 2);
+        DrawX(texture, x + 250, y, 7, new Color(0.84f, 0.37f, 0.00f), 3);
+        DrawLine(texture, x + 268, y, x + 322, y, new Color(0.84f, 0.37f, 0.00f), 3);
+        DrawText(texture, "Predicted target", x + 336, y - 9, new Color(0.84f, 0.37f, 0.00f), 2);
+    }
+
+    void DrawText(Texture2D texture, string text, int x, int y, Color color, int scale)
+    {
+        int cursorX = x;
+        string upper = text.ToUpperInvariant();
+        foreach (char ch in upper)
+        {
+            if (ch == '\n')
+            {
+                cursorX = x;
+                y += 8 * scale;
+                continue;
+            }
+
+            string[] glyph = GetPlotGlyph(ch);
+            if (glyph == null)
+            {
+                cursorX += 4 * scale;
+                continue;
+            }
+
+            for (int row = 0; row < glyph.Length; row++)
+            {
+                for (int col = 0; col < glyph[row].Length; col++)
+                {
+                    if (glyph[row][col] != '1')
+                    {
+                        continue;
+                    }
+
+                    FillRect(texture, cursorX + col * scale, y + row * scale, scale, scale, color);
+                }
+            }
+
+            cursorX += (glyph[0].Length + 1) * scale;
+        }
+    }
+
+    string[] GetPlotGlyph(char ch)
+    {
+        switch (ch)
+        {
+            case 'A': return new[] { "01110", "10001", "10001", "11111", "10001", "10001", "10001" };
+            case 'B': return new[] { "11110", "10001", "10001", "11110", "10001", "10001", "11110" };
+            case 'C': return new[] { "01111", "10000", "10000", "10000", "10000", "10000", "01111" };
+            case 'D': return new[] { "11110", "10001", "10001", "10001", "10001", "10001", "11110" };
+            case 'E': return new[] { "11111", "10000", "10000", "11110", "10000", "10000", "11111" };
+            case 'F': return new[] { "11111", "10000", "10000", "11110", "10000", "10000", "10000" };
+            case 'G': return new[] { "01111", "10000", "10000", "10111", "10001", "10001", "01111" };
+            case 'H': return new[] { "10001", "10001", "10001", "11111", "10001", "10001", "10001" };
+            case 'I': return new[] { "11111", "00100", "00100", "00100", "00100", "00100", "11111" };
+            case 'J': return new[] { "00111", "00010", "00010", "00010", "10010", "10010", "01100" };
+            case 'K': return new[] { "10001", "10010", "10100", "11000", "10100", "10010", "10001" };
+            case 'L': return new[] { "10000", "10000", "10000", "10000", "10000", "10000", "11111" };
+            case 'M': return new[] { "10001", "11011", "10101", "10101", "10001", "10001", "10001" };
+            case 'N': return new[] { "10001", "11001", "10101", "10011", "10001", "10001", "10001" };
+            case 'O': return new[] { "01110", "10001", "10001", "10001", "10001", "10001", "01110" };
+            case 'P': return new[] { "11110", "10001", "10001", "11110", "10000", "10000", "10000" };
+            case 'Q': return new[] { "01110", "10001", "10001", "10001", "10101", "10010", "01101" };
+            case 'R': return new[] { "11110", "10001", "10001", "11110", "10100", "10010", "10001" };
+            case 'S': return new[] { "01111", "10000", "10000", "01110", "00001", "00001", "11110" };
+            case 'T': return new[] { "11111", "00100", "00100", "00100", "00100", "00100", "00100" };
+            case 'U': return new[] { "10001", "10001", "10001", "10001", "10001", "10001", "01110" };
+            case 'V': return new[] { "10001", "10001", "10001", "10001", "10001", "01010", "00100" };
+            case 'W': return new[] { "10001", "10001", "10001", "10101", "10101", "10101", "01010" };
+            case 'X': return new[] { "10001", "10001", "01010", "00100", "01010", "10001", "10001" };
+            case 'Y': return new[] { "10001", "10001", "01010", "00100", "00100", "00100", "00100" };
+            case 'Z': return new[] { "11111", "00001", "00010", "00100", "01000", "10000", "11111" };
+            case '0': return new[] { "01110", "10001", "10011", "10101", "11001", "10001", "01110" };
+            case '1': return new[] { "00100", "01100", "00100", "00100", "00100", "00100", "01110" };
+            case '2': return new[] { "01110", "10001", "00001", "00010", "00100", "01000", "11111" };
+            case '3': return new[] { "11110", "00001", "00001", "01110", "00001", "00001", "11110" };
+            case '4': return new[] { "00010", "00110", "01010", "10010", "11111", "00010", "00010" };
+            case '5': return new[] { "11111", "10000", "10000", "11110", "00001", "00001", "11110" };
+            case '6': return new[] { "01110", "10000", "10000", "11110", "10001", "10001", "01110" };
+            case '7': return new[] { "11111", "00001", "00010", "00100", "01000", "01000", "01000" };
+            case '8': return new[] { "01110", "10001", "10001", "01110", "10001", "10001", "01110" };
+            case '9': return new[] { "01110", "10001", "10001", "01111", "00001", "00001", "01110" };
+            case ':': return new[] { "0", "1", "0", "0", "1", "0", "0" };
+            case '/': return new[] { "00001", "00010", "00010", "00100", "01000", "01000", "10000" };
+            case '-': return new[] { "00000", "00000", "00000", "11111", "00000", "00000", "00000" };
+            case '%': return new[] { "11001", "11010", "00010", "00100", "01000", "01011", "10011" };
+            case '(': return new[] { "0010", "0100", "1000", "1000", "1000", "0100", "0010" };
+            case ')': return new[] { "1000", "0100", "0010", "0010", "0010", "0100", "1000" };
+            case ' ': return new[] { "000", "000", "000", "000", "000", "000", "000" };
+            default: return null;
+        }
     }
 
     void SetPlotPixel(Texture2D texture, int x, int y, Color color)
@@ -1207,16 +1423,10 @@ public class BciGameTrialManager : MonoBehaviour
 
         totalTrials = UnityTargetCount;
         calibrationTrials = UnityTargetCount;
+        useBalancedRandomCueTargets = true;
 
-        if (cueTargets == null || cueTargets.Length != UnityTargetCount)
-        {
-            cueTargets = CreateSequentialTargets();
-        }
-
-        if (onlineAccuracyTrueTargets == null || onlineAccuracyTrueTargets.Length != UnityTargetCount)
-        {
-            onlineAccuracyTrueTargets = CreateSequentialTargets();
-        }
+        cueTargets = CreateSequentialTargets();
+        onlineAccuracyTrueTargets = CreateSequentialTargets();
     }
 
     int[] CreateSequentialTargets()

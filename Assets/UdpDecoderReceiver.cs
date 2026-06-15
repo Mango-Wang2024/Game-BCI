@@ -10,13 +10,13 @@ public class UdpDecoderReceiver : MonoBehaviour
 {
     public int listenPort = 9101;
     public int[] extraListenPorts = { 9100 };
+    public bool verboseUdpLogging = false;
 
     private readonly List<UdpClient> udpClients = new List<UdpClient>();
     private readonly List<Thread> receiveThreads = new List<Thread>();
     private volatile bool isRunning = false;
     private readonly object lockObject = new object();
-
-    private int pendingClass = -1;
+    private readonly Dictionary<int, int> pendingClassesByTrial = new Dictionary<int, int>();
 
     void Start()
     {
@@ -28,14 +28,25 @@ public class UdpDecoderReceiver : MonoBehaviour
         StopReceiver();
     }
 
-    public bool TryGetLatestClass(out int classId)
+    public void ClearTrialResult(int trialId)
     {
         lock (lockObject)
         {
-            if (pendingClass >= 0)
+            pendingClassesByTrial.Remove(trialId);
+        }
+    }
+
+    public bool TryGetClassForTrial(int trialId, out int classId)
+    {
+        lock (lockObject)
+        {
+            if (pendingClassesByTrial.TryGetValue(trialId, out classId))
             {
-                classId = pendingClass;
-                pendingClass = -1;
+                pendingClassesByTrial.Remove(trialId);
+                if (verboseUdpLogging)
+                {
+                    Debug.Log("[CHECK] Unity consumed decoder output for trial " + trialId + ": class " + classId);
+                }
                 return true;
             }
         }
@@ -119,7 +130,6 @@ public class UdpDecoderReceiver : MonoBehaviour
                 byte[] data = client.Receive(ref remoteEndPoint);
                 string message = Encoding.UTF8.GetString(data).Trim();
 
-                Debug.Log("Received UDP on port " + port + ": " + message);
                 HandleMessage(message);
             }
             catch (SocketException)
@@ -146,6 +156,11 @@ public class UdpDecoderReceiver : MonoBehaviour
             return;
         }
 
+        if (!int.TryParse(parts[1], out int trialId))
+        {
+            return;
+        }
+
         if (!int.TryParse(parts[2], out int classId))
         {
             return;
@@ -153,7 +168,12 @@ public class UdpDecoderReceiver : MonoBehaviour
 
         lock (lockObject)
         {
-            pendingClass = classId;
+            pendingClassesByTrial[trialId] = classId;
+        }
+
+        if (verboseUdpLogging)
+        {
+            Debug.Log("[CHECK] Unity stored decoder output for trial " + trialId + ": class " + classId);
         }
     }
 }

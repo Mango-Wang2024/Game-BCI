@@ -82,7 +82,7 @@ public class BciGameTrialManager : MonoBehaviour
     public float zeroTrainingWarmUpSeconds = 8.4f;
     public float decoderWaitSeconds = 2f;
     public float feedbackSeconds = 0.7f;
-    public float postArrivalDriveViewSeconds = 0f;
+    public float postArrivalDriveViewSeconds = 1f;
     public bool enableKeyboardDebug = true;
     public bool useCue = true;
     public bool useBalancedRandomCueTargets = true;

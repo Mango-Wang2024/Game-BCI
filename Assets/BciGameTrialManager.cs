@@ -63,8 +63,8 @@ public class BciGameTrialManager : MonoBehaviour
     public BciTestDisplayMode testDisplayMode = BciTestDisplayMode.ZeroTrain;
     public TMP_Text testOverlayText;
     public Color testOverlayTextColor = Color.black;
-    public int testOverlayFontSize = 28;
-    public Vector2 testOverlayOffset = new Vector2(24f, -90f);
+    public int testOverlayFontSize = 48;
+    public Vector2 testOverlayOffset = new Vector2(32f, -72f);
     public string waitingText = "Waiting...";
     public string pressStartText = "Press C to start";
     public string recognizingText = "Start recognizing the target";
@@ -77,7 +77,7 @@ public class BciGameTrialManager : MonoBehaviour
     public float firstReadySeconds = 5f;
     public float interTrialSeconds = 0.5f;
     public float cueSeconds = 0.7f;
-    public float postCueBlinkSeconds = 1f;
+    public float postCueBlinkSeconds = 1.5f;
     public float trialDurationSeconds = 8.4f;
     public bool useZeroTrainingWarmUp = true;
     public float zeroTrainingWarmUpSeconds = 12f;
@@ -139,6 +139,7 @@ public class BciGameTrialManager : MonoBehaviour
 
         ApplySixteenTargetDefaults();
         CreateTileNumberLabels();
+        ConfigureStatusTextLayout();
         ApplyInteractionModeVisibility();
         SetSelectionView();
         UpdateTestOverlay();
@@ -166,6 +167,7 @@ public class BciGameTrialManager : MonoBehaviour
         runtimeCueTargets = null;
         ApplySixteenTargetDefaults();
         CreateTileNumberLabels();
+        ConfigureStatusTextLayout();
         ApplyInteractionModeVisibility();
         flasher.ClearHighlight();
         SetSelectionView();
@@ -445,6 +447,7 @@ public class BciGameTrialManager : MonoBehaviour
         }
 
         SetTileNumberLabelsVisible(true);
+        SetStatusTextVisible(false);
 
         if (driveCamera != null)
         {
@@ -466,6 +469,7 @@ public class BciGameTrialManager : MonoBehaviour
         }
 
         SetTileNumberLabelsVisible(false);
+        SetStatusTextVisible(true);
 
         if (driveCamera != null)
         {
@@ -776,6 +780,33 @@ public class BciGameTrialManager : MonoBehaviour
         }
 
         UpdateTestOverlay();
+    }
+
+    void SetStatusTextVisible(bool visible)
+    {
+        if (statusText != null)
+        {
+            statusText.gameObject.SetActive(visible);
+        }
+    }
+
+    void ConfigureStatusTextLayout()
+    {
+        if (statusText == null)
+        {
+            return;
+        }
+
+        statusText.fontSize = 30f;
+        statusText.alignment = TextAlignmentOptions.Center;
+        statusText.enableWordWrapping = false;
+
+        RectTransform rect = statusText.rectTransform;
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = new Vector2(0f, 72f);
+        rect.sizeDelta = new Vector2(800f, 80f);
     }
 
     bool IsTestMode()

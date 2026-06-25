@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -9,12 +10,13 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
 {
     public int listenPort = 9110;
     public BciGameTrialManager trialManager;
+    public UdpDecoderReceiver decoderReceiver;
 
     private UdpClient udpClient;
     private Thread receiveThread;
     private volatile bool isRunning = false;
     private readonly object lockObject = new object();
-    private string pendingCommand = "";
+    private readonly Queue<string> pendingCommands = new Queue<string>();
 
     void Start()
     {
@@ -23,9 +25,19 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
             trialManager = FindObjectOfType<BciGameTrialManager>();
         }
 
+        if (decoderReceiver == null)
+        {
+            decoderReceiver = FindObjectOfType<UdpDecoderReceiver>();
+        }
+
         if (trialManager == null)
         {
             Debug.LogError("[CHECK] Unity frontend command receiver has no BciGameTrialManager assigned.");
+        }
+
+        if (decoderReceiver == null)
+        {
+            Debug.LogError("[CHECK] Unity frontend command receiver has no UdpDecoderReceiver assigned.");
         }
 
         StartReceiver();
@@ -33,19 +45,19 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
 
     void Update()
     {
-        string command = "";
-
-        lock (lockObject)
+        while (true)
         {
-            if (!string.IsNullOrEmpty(pendingCommand))
+            string command;
+            lock (lockObject)
             {
-                command = pendingCommand;
-                pendingCommand = "";
-            }
-        }
+                if (pendingCommands.Count == 0)
+                {
+                    break;
+                }
 
-        if (!string.IsNullOrEmpty(command))
-        {
+                command = pendingCommands.Dequeue();
+            }
+
             ApplyCommand(command);
         }
     }
@@ -66,7 +78,11 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
             receiveThread.IsBackground = true;
             receiveThread.Start();
 
-            Debug.Log("Unity frontend command receiver listening on port " + listenPort);
+            Debug.Log("[CHECK] Unity frontend command receiver listening on port " + listenPort + ".");
+            if (decoderReceiver != null)
+            {
+                decoderReceiver.RegisterFallbackReceiver(listenPort);
+            }
         }
         catch (Exception e)
         {
@@ -102,11 +118,9 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
                 byte[] data = udpClient.Receive(ref remoteEndPoint);
                 string message = Encoding.UTF8.GetString(data).Trim();
 
-                Debug.Log("[CHECK] Unity frontend UDP command packet received: " + message);
-
                 lock (lockObject)
                 {
-                    pendingCommand = message;
+                    pendingCommands.Enqueue(message);
                 }
             }
             catch (SocketException)
@@ -126,13 +140,33 @@ public class UnityFrontendCommandReceiver : MonoBehaviour
 
     void ApplyCommand(string command)
     {
+        string normalized = command.Trim().ToLowerInvariant();
+
+        if (
+            normalized.StartsWith("class:")
+            || normalized.StartsWith("armed:")
+            || normalized.StartsWith("error:")
+        )
+        {
+            if (decoderReceiver == null)
+            {
+                Debug.LogWarning("[CHECK] Decoder result arrived on fallback port but no receiver is assigned: "
+                    + command);
+                return;
+            }
+
+            decoderReceiver.QueueMessage(command, listenPort);
+            return;
+        }
+
+        Debug.Log("[CHECK] Unity frontend UDP command packet received: " + command);
+
         if (trialManager == null)
         {
             Debug.LogWarning("Unity frontend command ignored because Trial Manager is not assigned.");
             return;
         }
 
-        string normalized = command.Trim().ToLowerInvariant();
         Debug.Log("Unity frontend command received: " + normalized);
 
         if (normalized == "training" || normalized == "calibration")

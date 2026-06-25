@@ -42,7 +42,6 @@ public class CvepTileFlasher : MonoBehaviour
 
     private bool isFlashing = false;
     private int frameIndex = 0;
-    private float frameTimer = 0f;
 
     void Start()
     {
@@ -55,6 +54,7 @@ public class CvepTileFlasher : MonoBehaviour
         }
 
         codeData = JsonUtility.FromJson<CvepCodeData>(json.text);
+        ConfigurePresentationFrameRate();
         NormalizeDestinationTiles();
 
         if (destinationTiles == null || destinationTiles.Length == 0)
@@ -94,7 +94,6 @@ public class CvepTileFlasher : MonoBehaviour
 
         isFlashing = true;
         frameIndex = 0;
-        frameTimer = 0f;
     }
 
     public void StopFlashing()
@@ -120,16 +119,6 @@ public class CvepTileFlasher : MonoBehaviour
 
     void FlashOneFrame()
     {
-        frameTimer += Time.deltaTime;
-        float frameDuration = 1f / codeData.presentationRateHz;
-
-        if (frameTimer < frameDuration)
-        {
-            return;
-        }
-
-        frameTimer -= frameDuration;
-
         for (int i = 0; i < tileRenderers.Length && i < codes.Length; i++)
         {
             if (codes[i] == null || codes[i].Length == 0)
@@ -146,6 +135,19 @@ public class CvepTileFlasher : MonoBehaviour
         }
 
         frameIndex++;
+    }
+
+    void ConfigurePresentationFrameRate()
+    {
+        if (codeData == null || codeData.presentationRateHz <= 0)
+        {
+            return;
+        }
+
+        QualitySettings.vSyncCount = 1;
+        Application.targetFrameRate = codeData.presentationRateHz;
+        Debug.Log("[CHECK] cVEP flashing uses one code bit per rendered frame; target frame rate "
+            + codeData.presentationRateHz + " Hz with VSync enabled.");
     }
 
     int[][] BuildCodeArray()

@@ -16,11 +16,52 @@ public class UdpDecoderReceiver : MonoBehaviour
     private readonly List<Thread> receiveThreads = new List<Thread>();
     private volatile bool isRunning = false;
     private readonly object lockObject = new object();
+    private readonly Queue<ReceivedPacket> pendingPackets = new Queue<ReceivedPacket>();
     private readonly Dictionary<int, int> pendingClassesByTrial = new Dictionary<int, int>();
+    private readonly Dictionary<int, string> pendingErrorsByTrial = new Dictionary<int, string>();
+    private bool primaryPortListening = false;
+    private bool selfTestReceived = false;
+    private bool fallbackReceiverReady = false;
+
+    private struct ReceivedPacket
+    {
+        public string message;
+        public int port;
+
+        public ReceivedPacket(string message, int port)
+        {
+            this.message = message;
+            this.port = port;
+        }
+    }
+
+    public bool IsReady
+    {
+        get { return (primaryPortListening && selfTestReceived) || fallbackReceiverReady; }
+    }
 
     void Start()
     {
         StartReceiver();
+    }
+
+    void Update()
+    {
+        while (true)
+        {
+            ReceivedPacket packet;
+            lock (lockObject)
+            {
+                if (pendingPackets.Count == 0)
+                {
+                    break;
+                }
+
+                packet = pendingPackets.Dequeue();
+            }
+
+            HandleMessage(packet.message, packet.port);
+        }
     }
 
     void OnDestroy()
@@ -33,7 +74,27 @@ public class UdpDecoderReceiver : MonoBehaviour
         lock (lockObject)
         {
             pendingClassesByTrial.Remove(trialId);
+            pendingErrorsByTrial.Remove(trialId);
         }
+    }
+
+    public void QueueMessage(string message, int sourcePort)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        lock (lockObject)
+        {
+            pendingPackets.Enqueue(new ReceivedPacket(message.Trim(), sourcePort));
+        }
+    }
+
+    public void RegisterFallbackReceiver(int port)
+    {
+        fallbackReceiverReady = true;
+        Debug.Log("[CHECK] Unity decoder-result fallback is ready on port " + port + ".");
     }
 
     public bool TryGetClassForTrial(int trialId, out int classId)
@@ -43,15 +104,27 @@ public class UdpDecoderReceiver : MonoBehaviour
             if (pendingClassesByTrial.TryGetValue(trialId, out classId))
             {
                 pendingClassesByTrial.Remove(trialId);
-                if (verboseUdpLogging)
-                {
-                    Debug.Log("[CHECK] Unity consumed decoder output for trial " + trialId + ": class " + classId);
-                }
+                Debug.Log("[CHECK] Unity consumed decoder output for trial " + trialId + ": class " + classId);
                 return true;
             }
         }
 
         classId = -1;
+        return false;
+    }
+
+    public bool TryGetErrorForTrial(int trialId, out string error)
+    {
+        lock (lockObject)
+        {
+            if (pendingErrorsByTrial.TryGetValue(trialId, out error))
+            {
+                pendingErrorsByTrial.Remove(trialId);
+                return true;
+            }
+        }
+
+        error = "";
         return false;
     }
 
@@ -76,6 +149,8 @@ public class UdpDecoderReceiver : MonoBehaviour
         }
 
         isRunning = true;
+        primaryPortListening = false;
+        selfTestReceived = false;
 
         foreach (int port in ports)
         {
@@ -89,12 +164,42 @@ public class UdpDecoderReceiver : MonoBehaviour
                 receiveThreads.Add(thread);
                 thread.Start();
 
-                Debug.Log("UDP decoder receiver listening on port " + port);
+                if (port == listenPort)
+                {
+                    primaryPortListening = true;
+                }
+
+                Debug.Log("[CHECK] UDP decoder receiver listening on port " + port + ".");
             }
             catch (Exception e)
             {
                 Debug.LogError("Could not start UDP receiver on port " + port + ": " + e.Message);
             }
+        }
+
+        if (primaryPortListening)
+        {
+            SendLoopbackProbe();
+        }
+        else
+        {
+            Debug.LogError("[CHECK] Primary UDP decoder receiver is not listening on port " + listenPort + ".");
+        }
+    }
+
+    void SendLoopbackProbe()
+    {
+        try
+        {
+            using (UdpClient probeClient = new UdpClient(AddressFamily.InterNetwork))
+            {
+                byte[] data = Encoding.UTF8.GetBytes("receiver_probe");
+                probeClient.Send(data, data.Length, "127.0.0.1", listenPort);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("[CHECK] Could not send UDP decoder receiver self-test: " + e.Message);
         }
     }
 
@@ -117,6 +222,8 @@ public class UdpDecoderReceiver : MonoBehaviour
 
         udpClients.Clear();
         receiveThreads.Clear();
+        primaryPortListening = false;
+        selfTestReceived = false;
     }
 
     void ReceiveLoop(UdpClient client, int port)
@@ -129,12 +236,14 @@ public class UdpDecoderReceiver : MonoBehaviour
             {
                 byte[] data = client.Receive(ref remoteEndPoint);
                 string message = Encoding.UTF8.GetString(data).Trim();
-
-                HandleMessage(message);
+                QueueMessage(message, port);
             }
-            catch (SocketException)
+            catch (SocketException e)
             {
-                // Socket closes when exiting Play Mode.
+                if (isRunning)
+                {
+                    QueueMessage("receiver_error|" + e.Message, port);
+                }
             }
             catch (ObjectDisposedException)
             {
@@ -142,21 +251,61 @@ public class UdpDecoderReceiver : MonoBehaviour
             }
             catch (Exception e)
             {
-                Debug.LogWarning("UDP receive error: " + e.Message);
+                QueueMessage("receiver_error|" + e.Message, port);
             }
         }
     }
 
-    void HandleMessage(string message)
+    void HandleMessage(string message, int sourcePort)
     {
-        string[] parts = message.Split(':');
+        if (message == "receiver_probe")
+        {
+            selfTestReceived = true;
+            Debug.Log("[CHECK] UDP decoder receiver self-test passed on port " + sourcePort + ".");
+            return;
+        }
 
-        if (parts.Length < 3 || parts[0] != "class")
+        if (message.StartsWith("receiver_error|"))
+        {
+            Debug.LogWarning("[CHECK] UDP decoder receiver error on port " + sourcePort + ": "
+                + message.Substring("receiver_error|".Length));
+            return;
+        }
+
+        string[] parts = message.Split(':');
+        if (parts.Length < 2)
         {
             return;
         }
 
+        if (parts[0] == "armed")
+        {
+            if (verboseUdpLogging)
+            {
+                Debug.Log("[CHECK] Unity received decoder armed message for trial " + parts[1]
+                    + " on port " + sourcePort + ".");
+            }
+            return;
+        }
+
         if (!int.TryParse(parts[1], out int trialId))
+        {
+            return;
+        }
+
+        if (parts[0] == "error" && parts.Length >= 3)
+        {
+            string reason = string.Join(":", parts, 2, parts.Length - 2);
+            lock (lockObject)
+            {
+                pendingErrorsByTrial[trialId] = reason;
+            }
+            Debug.LogWarning("[CHECK] Unity received decoder error for trial " + trialId
+                + ": " + reason + ".");
+            return;
+        }
+
+        if (parts[0] != "class" || parts.Length < 3)
         {
             return;
         }
@@ -166,14 +315,22 @@ public class UdpDecoderReceiver : MonoBehaviour
             return;
         }
 
+        bool isNewResult;
         lock (lockObject)
         {
+            isNewResult = !pendingClassesByTrial.ContainsKey(trialId);
             pendingClassesByTrial[trialId] = classId;
         }
 
-        if (verboseUdpLogging)
+        if (isNewResult)
         {
-            Debug.Log("[CHECK] Unity stored decoder output for trial " + trialId + ": class " + classId);
+            Debug.Log("[CHECK] Unity stored decoder output for trial " + trialId + ": class "
+                + classId + " from port " + sourcePort + ".");
+        }
+        else if (verboseUdpLogging)
+        {
+            Debug.Log("[CHECK] Unity refreshed decoder output for trial " + trialId + ": class "
+                + classId + " from port " + sourcePort + ".");
         }
     }
 }

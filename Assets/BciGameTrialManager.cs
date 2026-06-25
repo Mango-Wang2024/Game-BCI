@@ -77,9 +77,10 @@ public class BciGameTrialManager : MonoBehaviour
     public float firstReadySeconds = 5f;
     public float interTrialSeconds = 0.5f;
     public float cueSeconds = 0.7f;
-    public float trialDurationSeconds = 4.2f;
+    public float postCueBlinkSeconds = 1f;
+    public float trialDurationSeconds = 8.4f;
     public bool useZeroTrainingWarmUp = true;
-    public float zeroTrainingWarmUpSeconds = 8.4f;
+    public float zeroTrainingWarmUpSeconds = 12f;
     public float decoderWaitSeconds = 2f;
     public float feedbackSeconds = 0.7f;
     public float postArrivalDriveViewSeconds = 1f;
@@ -233,6 +234,15 @@ public class BciGameTrialManager : MonoBehaviour
             yield break;
         }
 
+        if (!decoderReceiver.IsReady)
+        {
+            Debug.LogError("[CHECK] Online run stopped: neither the primary nor fallback decoder-result receiver is ready.");
+            SetStatusText("Decoder receiver not ready");
+            yield break;
+        }
+
+        Debug.Log("[CHECK] Unity decoder-result receiver is ready before online trials start.");
+
         for (int trialId = 1; trialId <= GetTrialCount(); trialId++)
         {
             SetSelectionView();
@@ -257,7 +267,9 @@ public class BciGameTrialManager : MonoBehaviour
             markerSender.SendMarker(forceDecisionMarker, trialId);
 
             int decodedClass = -1;
+            string decoderError = "";
             float waitUntil = Time.time + Mathf.Max(decoderWaitSeconds, 1.5f);
+            float nextRetryTime = Time.time + 0.25f;
 
             while (Time.time < waitUntil)
             {
@@ -266,12 +278,33 @@ public class BciGameTrialManager : MonoBehaviour
                     break;
                 }
 
+                if (decoderReceiver.TryGetErrorForTrial(trialId, out decoderError))
+                {
+                    break;
+                }
+
+                if (Time.time >= nextRetryTime)
+                {
+                    markerSender.SendMarker(forceDecisionMarker, trialId);
+                    nextRetryTime = Time.time + 0.25f;
+                }
+
                 yield return null;
+            }
+
+            if (!string.IsNullOrEmpty(decoderError))
+            {
+                Debug.LogWarning("[CHECK] Decoder rejected trial " + trialId + ": " + decoderError);
+                RecordOnlineAccuracyTrial(trialId, trueTarget, -1, false);
+                SetRecognizedTargetOverlay(trialId, -1, false);
+                SetStatusText("EEG stream unavailable");
+                continue;
             }
 
             if (decodedClass < 0)
             {
-                Debug.LogWarning("No decoder result received for trial " + trialId);
+                Debug.LogWarning("[CHECK] No decoder result received for trial " + trialId
+                    + " even though the Unity receiver was ready.");
                 RecordOnlineAccuracyTrial(trialId, trueTarget, -1, false);
                 SetRecognizedTargetOverlay(trialId, -1, false);
                 continue;
@@ -333,6 +366,7 @@ public class BciGameTrialManager : MonoBehaviour
                 yield return new WaitForSeconds(cueSeconds);
                 flasher.ClearHighlight();
                 markerSender.SendRawMarkerToLslBridge(cueStopMarker);
+                yield return new WaitForSeconds(postCueBlinkSeconds);
             }
 
             SetStatusText("");
@@ -780,9 +814,13 @@ public class BciGameTrialManager : MonoBehaviour
 
         overlay.gameObject.SetActive(true);
 
+        string modeText = IsTestMode()
+            ? "Test\n" + GetTestDisplayModeLabel()
+            : GetTestDisplayModeLabel();
+
         overlay.text = string.IsNullOrWhiteSpace(testOverlayDetailText)
-            ? GetTestDisplayModeLabel()
-            : GetTestDisplayModeLabel() + "\n" + testOverlayDetailText;
+            ? modeText
+            : modeText + "\n" + testOverlayDetailText;
     }
 
     TMP_Text GetTestOverlayText()

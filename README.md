@@ -1,17 +1,59 @@
 # BCI Unity Game
 
-This project requires both the **Game-BCI** repository and the
-**cVEP-Unity** repository.
+This project uses Unity as the game frontend and a Python cVEP pipeline as the decoder/speller backend.
+
+The full program uses three GitHub repositories:
+
+- `Game-BCI`: Unity game project.
+- `cVEP-Unity`: Python cVEP decoder, speller, configuration files, and data pipeline.
+- `MobileUIButtons`: Unity UI dependency used as a submodule inside `Game-BCI`.
+
+## Required Repositories
+
+Clone the Unity game with submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/Mango-Wang2024/Game-BCI.git
+```
+
+Clone the Python backend:
+
+```bash
+git clone https://github.com/Mango-Wang2024/cVEP-Unity.git
+```
+
+After cloning, the folder structure should look like this:
+
+```text
+your_workspace/
+├── Game-BCI/
+│   └── Assets/
+│       └── MobileUIButtons/
+└── cVEP-Unity/
+```
+
+## If You Already Cloned Game-BCI Without Submodules
+
+Run:
+
+```bash
+cd Game-BCI
+git submodule update --init --recursive
+```
+
+This downloads the `MobileUIButtons` submodule.
 
 ## Prerequisites
 
 Before starting, make sure you have:
 
--   OpenBCI installed and connected.
--   Both repositories cloned:
-    -   `Game-BCI`
-    -   `cVEP-Unity`
--   The correct Conda environment installed.
+- OpenBCI installed and connected.
+- The Unity game repository cloned with submodules:
+  - `Game-BCI`
+  - `MobileUIButtons` inside `Game-BCI/Assets/MobileUIButtons`
+- The Python backend repository cloned:
+  - `cVEP-Unity`
+- The correct Conda environment installed.
 
 ------------------------------------------------------------------------
 

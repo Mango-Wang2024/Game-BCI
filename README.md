@@ -2,18 +2,21 @@
 
 This project uses Unity as the game frontend and a Python cVEP pipeline as the decoder/speller backend.
 
-The full program uses three GitHub repositories:
+The full program uses:
 
-- `Game-BCI`: Unity game project.
+- `BCI_Unity_Build_Game.app`: Unity game frontend for Game Mode.
+- `BCI_Unity_Build_Test.app`: Unity game frontend for Test Mode.
 - `cVEP-Unity`: Python cVEP decoder, speller, configuration files, and data pipeline.
-- `MobileUIButtons`: Unity UI dependency used as a submodule inside `Game-BCI`.
 
-## Required Repositories
+The Unity source code is available in `Game-BCI`, but it is not required if you already have the `.app` files.
 
-Clone the Unity game with submodules:
+## Required Files
 
-```bash
-git clone --recurse-submodules https://github.com/Mango-Wang2024/Game-BCI.git
+Make sure you have the Unity app files:
+
+```text
+BCI_Unity_Build_Game.app
+BCI_Unity_Build_Test.app
 ```
 
 Clone the Python backend:
@@ -22,19 +25,24 @@ Clone the Python backend:
 git clone https://github.com/Mango-Wang2024/cVEP-Unity.git
 ```
 
-After cloning, the folder structure should look like this:
+After setup, the folder/files should look like this:
 
 ```text
 your_workspace/
-├── Game-BCI/
-│   └── Assets/
-│       └── MobileUIButtons/
+├── BCI_Unity_Build_Game.app
+├── BCI_Unity_Build_Test.app
 └── cVEP-Unity/
 ```
 
-## If You Already Cloned Game-BCI Without Submodules
+## Optional: Unity Source Code
 
-Run:
+If you want to inspect or modify the Unity project, clone the Unity source code with submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/Mango-Wang2024/Game-BCI.git
+```
+
+If you already cloned `Game-BCI` without submodules, run:
 
 ```bash
 cd Game-BCI
@@ -48,9 +56,9 @@ This downloads the `MobileUIButtons` submodule.
 Before starting, make sure you have:
 
 - OpenBCI installed and connected.
-- The Unity game repository cloned with submodules:
-  - `Game-BCI`
-  - `MobileUIButtons` inside `Game-BCI/Assets/MobileUIButtons`
+- The Unity app files:
+  - `BCI_Unity_Build_Game.app`
+  - `BCI_Unity_Build_Test.app`
 - The Python backend repository cloned:
   - `cVEP-Unity`
 - The correct Conda environment installed.
@@ -59,15 +67,14 @@ Before starting, make sure you have:
 
 # Step 1. Configure OpenBCI
 
-1.  Open **OpenBCI GUI**.
-2.  Go to **Hardware Settings**.
-3.  Set the hardware to **X1**.
-4.  Check the EEG signal quality.
-    -   The voltage on each channel should ideally stay below **60
-        µVrms**.
-5.  Confirm that all EEG channels have good signal quality.
-6.  Change **Networking** to **LSL**.
-7.  Set the data type of **obci_eeg1** to **TimeSeriesRaw**.
+1. Open **OpenBCI GUI**.
+2. Go to **Hardware Settings**.
+3. Set the hardware to **X1**.
+4. Check the EEG signal quality.
+   - The voltage on each channel should ideally stay below **60 µVrms**.
+5. Confirm that all EEG channels have good signal quality.
+6. Change **Networking** to **LSL**.
+7. Set the data type of **obci_eeg1** to **TimeSeriesRaw**.
 
 ------------------------------------------------------------------------
 
@@ -75,8 +82,8 @@ Before starting, make sure you have:
 
 Open **Lab Recorder**.
 
-It is recommended to save recordings in a fixed directory (for example,
-the `data` folder inside `cVEP-Unity`).
+It is recommended to save recordings in a fixed directory, for example
+the `data` folder inside `cVEP-Unity`.
 
 Before starting a new recording, remove any old XDF files from the
 directory to avoid confusion.
@@ -89,7 +96,7 @@ directory to avoid confusion.
 
 Open the first terminal and run:
 
-``` bash
+```bash
 tail -n 100 -f /<your_path>/cVEP-Unity/cvep_speller_env/dp-control-room/dareplane_cr_all.log | grep '\[CHECK\]'
 ```
 
@@ -111,19 +118,19 @@ Open a second terminal.
 
 Activate your Conda environment:
 
-``` bash
+```bash
 conda activate <your_env_name>
 ```
 
 Go to the control-room directory:
 
-``` bash
+```bash
 cd <your_path>/cVEP-Unity/cvep_speller_env/dp-control-room
 ```
 
 Start the control room:
 
-``` bash
+```bash
 python -m control_room.main --setup_cfg_path=configs/cvep_speller.toml
 ```
 
@@ -137,18 +144,18 @@ Open the **Dareplane UI** in your browser.
 
 Click the buttons in the following order:
 
-1.  **FIT MODEL**
-2.  **UNITY ONLINE**
-3.  **LOAD MODEL**
-4.  **CONNECT DECODER**
+1. **FIT MODEL**
+2. **UNITY ONLINE**
+3. **LOAD MODEL**
+4. **CONNECT DECODER**
 
 Wait until the following message appears in the **CHECK** terminal:
 
-``` text
+```text
 ... is pressed
 ```
 
-5.  **DECODE ONLINE**
+5. **DECODE ONLINE**
 
 ------------------------------------------------------------------------
 
@@ -156,9 +163,9 @@ Wait until the following message appears in the **CHECK** terminal:
 
 Go back to **Lab Recorder**.
 
-1.  Click **Update**.
-2.  Select all **three streams**.
-3.  Click **Start**.
+1. Click **Update**.
+2. Select all **three streams**.
+3. Click **Start**.
 
 The XDF recording will begin.
 
@@ -166,13 +173,11 @@ The XDF recording will begin.
 
 # Step 7. Launch the Game
 
-Open:
+Open the provided app file:
 
-``` text
+```text
 BCI_Unity_Build_Game.app
 ```
-
-located in the `Builds` folder of `Game-BCI`.
 
 Press **C** to start the game.
 
@@ -182,19 +187,18 @@ Press **C** to start the game.
 
 For each trial:
 
-1.  The game first enters the **2D view**. Choose one target.
-2.  Keep your eyes fixed on the number of the selected target throughout
-    the flashing period.
-3.  It is recommended **not to blink** while the target is flashing.
-4.  After the flashing ends, the predicted target will be highlighted
-    with a **blue marker**. The game will then switch to the **3D
-    view**, and the car will automatically move to the center of the
-    predicted target.
-5.  After each flashing period, you may blink and relax your eyes before
-    the next trial begins.
-6.  After all **16 trials** have been completed, an accuracy plot will
-    be displayed. The predicted targets will be compared with the ground
-    truth for all 16 trials.
+1. The game first enters the **2D view**. Choose one target.
+2. Keep your eyes fixed on the number of the selected target throughout
+   the flashing period.
+3. It is recommended **not to blink** while the target is flashing.
+4. After the flashing ends, the predicted target will be highlighted
+   with a **blue marker**. The game will then switch to the **3D view**,
+   and the car will automatically move to the center of the predicted target.
+5. After each flashing period, you may blink and relax your eyes before
+   the next trial begins.
+6. After all **16 trials** have been completed, an accuracy plot will
+   be displayed. The predicted targets will be compared with the ground
+   truth for all 16 trials.
 
 ------------------------------------------------------------------------
 
@@ -203,30 +207,27 @@ For each trial:
 The workflow in **Test Mode** is identical to **Game Mode**, except that
 the game does not switch to the **3D view** and the car does not move.
 
-Launch:
+Open the provided test app file:
 
-``` text
+```text
 BCI_Unity_Build_Test.app
 ```
 
-located in the `Builds` folder of `Game-BCI`.
-
 In **Test Mode**:
 
--   The car does not move.
--   The predicted target is highlighted with a blue cue.
--   This mode allows decoder accuracy to be evaluated much faster
-    because there is no waiting for the car animation.
+- The car does not move.
+- The predicted target is highlighted with a blue cue.
+- This mode allows decoder accuracy to be evaluated much faster
+  because there is no waiting for the car animation.
 
 ------------------------------------------------------------------------
 
 # Notes
 
--   Always verify EEG signal quality before starting.
--   Wait for the **"... is pressed"** checkpoint before clicking
-    **DECODE ONLINE**.
--   Always select all **three** LSL streams before starting Lab
-    Recorder.
--   Remove old XDF files before recording a new session.
--   Avoid overloading the computer or allowing it to overheat, as this
-    can directly reduce decoding accuracy.
+- Always verify EEG signal quality before starting.
+- Wait for the **"... is pressed"** checkpoint before clicking
+  **DECODE ONLINE**.
+- Always select all **three** LSL streams before starting Lab Recorder.
+- Remove old XDF files before recording a new session.
+- Avoid overloading the computer or allowing it to overheat, as this
+  can directly reduce decoding accuracy.

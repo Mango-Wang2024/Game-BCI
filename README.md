@@ -160,7 +160,9 @@ Wait until the following message appears in the **CHECK** terminal:
 
 ------------------------------------------------------------------------
 
-# Step 6. Start Recording
+# (Optional) Step 6. Start Recording
+
+> **Important:** This step is only needed if you want to save an XDF file for later EEG signal analysis.
 
 Go back to **Lab Recorder**.
 

@@ -76,7 +76,7 @@ Before starting, make sure you have:
 Open **Lab Recorder**.
 
 It is recommended to save recordings in a fixed directory (for example,
-the `data` folder inside `dp-cvep-1`).
+the `data` folder inside `cVEP-Unity`).
 
 Before starting a new recording, remove any old XDF files from the
 directory to avoid confusion.
@@ -90,7 +90,7 @@ directory to avoid confusion.
 Open the first terminal and run:
 
 ``` bash
-tail -n 100 -f /<your_path>/dp-cvep-1/cvep_speller_env/dp-control-room/dareplane_cr_all.log | grep '\[CHECK\]'
+tail -n 100 -f /<your_path>/cVEP-Unity/cvep_speller_env/dp-control-room/dareplane_cr_all.log | grep '\[CHECK\]'
 ```
 
 Replace `<your_path>` with the actual path on your computer.
@@ -118,7 +118,7 @@ conda activate <your_env_name>
 Go to the control-room directory:
 
 ``` bash
-cd <your_path>/dp-cvep-1/cvep_speller_env/dp-control-room
+cd <your_path>/cVEP-Unity/cvep_speller_env/dp-control-room
 ```
 
 Start the control room:
@@ -172,7 +172,7 @@ Open:
 BCI_Unity_Build_Game.app
 ```
 
-located in the `Builds` folder of `BCI-unity-1`.
+located in the `Builds` folder of `Game-BCI`.
 
 Press **C** to start the game.
 
@@ -209,7 +209,7 @@ Launch:
 BCI_Unity_Build_Test.app
 ```
 
-located in the `Builds` folder of `BCI-unity-1`.
+located in the `Builds` folder of `Game-BCI`.
 
 In **Test Mode**:
 

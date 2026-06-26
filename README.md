@@ -35,6 +35,7 @@ your_workspace/
 ```
 
 ## Optional: Unity Source Code
+> **Important:** If you already have the `.app` files, you do not need this section. You only need this section if you want to inspect, modify, or rebuild the Unity project.
 
 If you want to inspect or modify the Unity project, clone the Unity source code with submodules:
 

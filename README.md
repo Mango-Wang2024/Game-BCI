@@ -194,13 +194,12 @@ For each trial:
 1. The game first enters the **2D view**. Choose one target.
 2. Keep your eyes fixed on the number of the selected target throughout
    the flashing period.
-3. It is recommended **not to blink** while the target is flashing.
-4. After the flashing ends, the predicted target will be highlighted
+3. After the flashing ends, the predicted target will be highlighted
    with a **blue marker**. The game will then switch to the **3D view**,
    and the car will automatically move to the center of the predicted target.
-5. After each flashing period, you may blink and relax your eyes before
+4. After each flashing period, you may blink and relax your eyes before
    the next trial begins.
-6. After all **16 trials** have been completed, an accuracy plot will
+5. After all **16 trials** have been completed, an accuracy plot will
    be displayed. The predicted targets will be compared with the ground
    truth for all 16 trials.
 

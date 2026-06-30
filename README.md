@@ -141,6 +141,13 @@ Replace `<your_env_name>` and `<your_path>` with your own values.
 
 # Step 5. Connect the Decoder
 
+Launch the Game first, but do not start it now.
+Open the provided app file:
+
+```text
+BCI_Unity_Build_Game.app
+```
+
 Open the **Dareplane UI** in your browser.
 
 Click the buttons in the following order:
@@ -174,13 +181,7 @@ The XDF recording will begin.
 
 ------------------------------------------------------------------------
 
-# Step 7. Launch the Game
-
-Open the provided app file:
-
-```text
-BCI_Unity_Build_Game.app
-```
+# Step 7. Go back to the Game
 
 Press **C** to start the game.
 

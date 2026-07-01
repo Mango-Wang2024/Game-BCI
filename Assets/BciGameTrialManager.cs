@@ -75,7 +75,7 @@ public class BciGameTrialManager : MonoBehaviour
     public int calibrationTrials = 16;
     public bool forceSixteenTargetLayout = true;
     public float firstReadySeconds = 5f;
-    public float interTrialSeconds = 0.5f;
+    public float interTrialSeconds = 2f;
     public float cueSeconds = 0.7f;
     public float postCueBlinkSeconds = 1.5f;
     public float trialDurationSeconds = 8.4f;

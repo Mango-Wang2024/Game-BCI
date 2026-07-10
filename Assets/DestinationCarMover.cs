@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 
 public class DestinationCarMover : MonoBehaviour
 {
@@ -10,12 +11,27 @@ public class DestinationCarMover : MonoBehaviour
     public float moveSpeed = 5f;
     public float rotateSpeed = 8f;
     public float stopDistance = 0.2f;
+    public float navMeshSampleRadius = 3f;
 
+    private NavMeshAgent navAgent;
     private Transform currentDestination;
     public bool HasArrived { get; private set; } = true;
 
     void Awake()
     {
+        if (car != null)
+        {
+            navAgent = car.GetComponent<NavMeshAgent>();
+            if (navAgent != null)
+            {
+                navAgent.speed = moveSpeed;
+                navAgent.angularSpeed = rotateSpeed * 60f;
+                navAgent.stoppingDistance = stopDistance;
+                navAgent.updateRotation = true;
+                navAgent.updatePosition = true;
+            }
+        }
+
         NormalizeDestinationTiles();
     }
 
@@ -34,12 +50,40 @@ public class DestinationCarMover : MonoBehaviour
 
         HasArrived = false;
         currentDestination = destinationTiles[index];
+
+        if (navAgent != null && navAgent.isOnNavMesh)
+        {
+            Vector3 navDestination = currentDestination.position;
+            if (NavMesh.SamplePosition(currentDestination.position, out NavMeshHit hit, navMeshSampleRadius, navAgent.areaMask))
+            {
+                navDestination = hit.position;
+            }
+            else
+            {
+                Debug.LogWarning("No NavMesh point found near destination index " + index);
+            }
+
+            navAgent.isStopped = false;
+            navAgent.SetDestination(navDestination);
+        }
     }
 
     void MoveCar()
     {
         if (car == null || currentDestination == null)
             return;
+
+        if (navAgent != null && navAgent.isOnNavMesh)
+        {
+            if (!navAgent.pathPending && navAgent.remainingDistance <= navAgent.stoppingDistance)
+            {
+                navAgent.isStopped = true;
+                currentDestination = null;
+                HasArrived = true;
+            }
+
+            return;
+        }
 
         Vector3 target = currentDestination.position;
         target.y = car.position.y;

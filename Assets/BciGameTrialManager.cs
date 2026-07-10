@@ -41,6 +41,8 @@ public class BciGameTrialManager : MonoBehaviour
     public Vector3 driveCameraLookOffset = new Vector3(0f, 1.2f, 2.5f);
     public float driveCameraFollowSpeed = 6f;
     public float driveCameraRotateSpeed = 8f;
+    public bool useViewTransition = true;
+    public float viewTransitionSeconds = 0.8f;
 
     public Renderer groundRenderer;
     public Renderer[] viewSwitchTileRenderers;
@@ -217,7 +219,7 @@ public class BciGameTrialManager : MonoBehaviour
             yield return StartCoroutine(RunOnlineGameTrials());
         }
 
-        SetSelectionView();
+        yield return StartCoroutine(SwitchToSelectionView());
         SetStatusText(finishedText);
 
         if (enableOnlineAccuracyPlot && onlineAccuracyRows.Count > 0)
@@ -247,7 +249,7 @@ public class BciGameTrialManager : MonoBehaviour
 
         for (int trialId = 1; trialId <= GetTrialCount(); trialId++)
         {
-            SetSelectionView();
+            yield return StartCoroutine(SwitchToSelectionView());
 
             if (trialId > 1)
             {
@@ -261,37 +263,57 @@ public class BciGameTrialManager : MonoBehaviour
             decoderReceiver.ClearTrialResult(trialId);
             markerSender.SendRawMarkerToLslBridge(FormatOnlineTrialMarker(startTrialMarker, trialId, trueTarget));
             markerSender.SendMarker(startTrialMarker, trialId);
-            flasher.StartFlashing();
-            yield return StartCoroutine(WaitRealtimeSeconds(GetOnlineTrialDuration(trialId)));
-            flasher.StopFlashing();
-            markerSender.SendRawMarkerToLslBridge(FormatOnlineTrialMarker(stopTrialMarker, trialId, trueTarget));
-            markerSender.SendRawMarkerToLslBridge("force_decision;trial=" + trialId);
-            markerSender.SendMarker(forceDecisionMarker, trialId);
 
             int decodedClass = -1;
             string decoderError = "";
-            float waitUntil = Time.time + Mathf.Max(decoderWaitSeconds, 1.5f);
-            float nextRetryTime = Time.time + 0.25f;
-
-            while (Time.time < waitUntil)
+            flasher.StartFlashing();
+            float stimulationStartTime = Time.realtimeSinceStartup;
+            float stimulationDuration = GetOnlineTrialDuration(trialId);
+            while (Time.realtimeSinceStartup - stimulationStartTime < stimulationDuration)
             {
-                if (decoderReceiver.TryGetClassForTrial(trialId, out decodedClass))
+                if (decoderReceiver.TryGetClassForTrial(trialId, out decodedClass)
+                    || decoderReceiver.TryGetErrorForTrial(trialId, out decoderError))
                 {
+                    Debug.Log("[CHECK] Trial " + trialId + " stimulation stopped early after "
+                        + (Time.realtimeSinceStartup - stimulationStartTime).ToString("F3")
+                        + "s because the decoder returned a result.");
                     break;
-                }
-
-                if (decoderReceiver.TryGetErrorForTrial(trialId, out decoderError))
-                {
-                    break;
-                }
-
-                if (Time.time >= nextRetryTime)
-                {
-                    markerSender.SendMarker(forceDecisionMarker, trialId);
-                    nextRetryTime = Time.time + 0.25f;
                 }
 
                 yield return null;
+            }
+
+            flasher.StopFlashing();
+            markerSender.SendRawMarkerToLslBridge(FormatOnlineTrialMarker(stopTrialMarker, trialId, trueTarget));
+
+            if (decodedClass < 0 && string.IsNullOrEmpty(decoderError))
+            {
+                markerSender.SendRawMarkerToLslBridge("force_decision;trial=" + trialId);
+                markerSender.SendMarker(forceDecisionMarker, trialId);
+
+                float waitUntil = Time.time + Mathf.Max(decoderWaitSeconds, 1.5f);
+                float nextRetryTime = Time.time + 0.25f;
+
+                while (Time.time < waitUntil)
+                {
+                    if (decoderReceiver.TryGetClassForTrial(trialId, out decodedClass))
+                    {
+                        break;
+                    }
+
+                    if (decoderReceiver.TryGetErrorForTrial(trialId, out decoderError))
+                    {
+                        break;
+                    }
+
+                    if (Time.time >= nextRetryTime)
+                    {
+                        markerSender.SendMarker(forceDecisionMarker, trialId);
+                        nextRetryTime = Time.time + 0.25f;
+                    }
+
+                    yield return null;
+                }
             }
 
             if (!string.IsNullOrEmpty(decoderError))
@@ -332,7 +354,7 @@ public class BciGameTrialManager : MonoBehaviour
                 continue;
             }
 
-            SetDriveView();
+            yield return StartCoroutine(SwitchToDriveView());
             SetStatusText(movingText);
             carMover.SetDestination(decodedClass);
 
@@ -401,7 +423,7 @@ public class BciGameTrialManager : MonoBehaviour
 
         isDebugMoving = true;
         flasher.ClearHighlight();
-        SetDriveView();
+        yield return StartCoroutine(SwitchToDriveView());
         SetStatusText(movingText);
         carMover.SetDestination(destinationIndex);
 
@@ -411,7 +433,7 @@ public class BciGameTrialManager : MonoBehaviour
         }
 
         yield return new WaitForSeconds(postArrivalDriveViewSeconds);
-        SetSelectionView();
+        yield return StartCoroutine(SwitchToSelectionView());
         SetStatusText(pressStartText);
         isDebugMoving = false;
     }
@@ -432,6 +454,83 @@ public class BciGameTrialManager : MonoBehaviour
         {
             yield return null;
         }
+    }
+
+    IEnumerator SwitchToSelectionView()
+    {
+        if (isSelectionViewActive || !useViewTransition || viewTransitionSeconds <= 0f || selectionCamera == null || driveCamera == null)
+        {
+            SetSelectionView();
+            yield break;
+        }
+
+        Vector3 startPosition = driveCamera.transform.position;
+        Quaternion startRotation = driveCamera.transform.rotation;
+        Vector3 endPosition = selectionCamera.transform.position;
+        Quaternion endRotation = selectionCamera.transform.rotation;
+
+        driveCamera.enabled = true;
+        SetAudioListener(driveCamera, true);
+        if (selectionCamera != null)
+        {
+            selectionCamera.enabled = false;
+            SetAudioListener(selectionCamera, false);
+        }
+
+        yield return StartCoroutine(AnimateCamera(driveCamera, startPosition, startRotation, endPosition, endRotation));
+        SetSelectionView();
+    }
+
+    IEnumerator SwitchToDriveView()
+    {
+        if (!isSelectionViewActive || !useViewTransition || viewTransitionSeconds <= 0f || selectionCamera == null || driveCamera == null)
+        {
+            SetDriveView();
+            yield break;
+        }
+
+        Vector3 startPosition = selectionCamera.transform.position;
+        Quaternion startRotation = selectionCamera.transform.rotation;
+        GetDriveCameraPose(out Vector3 endPosition, out Quaternion endRotation);
+
+        isSelectionViewActive = false;
+        ApplyInteractionModeVisibility();
+        ApplyDriveMaterials();
+        SetTileNumberLabelsVisible(false);
+        SetStatusTextVisible(true);
+
+        selectionCamera.enabled = false;
+        SetAudioListener(selectionCamera, false);
+        driveCamera.enabled = true;
+        SetAudioListener(driveCamera, true);
+        driveCamera.transform.position = startPosition;
+        driveCamera.transform.rotation = startRotation;
+
+        yield return StartCoroutine(AnimateCamera(driveCamera, startPosition, startRotation, endPosition, endRotation));
+        FollowCarCamera();
+    }
+
+    IEnumerator AnimateCamera(Camera cameraToAnimate, Vector3 startPosition, Quaternion startRotation, Vector3 endPosition, Quaternion endRotation)
+    {
+        if (cameraToAnimate == null)
+        {
+            yield break;
+        }
+
+        float duration = Mathf.Max(0.01f, viewTransitionSeconds);
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+            cameraToAnimate.transform.position = Vector3.Lerp(startPosition, endPosition, t);
+            cameraToAnimate.transform.rotation = Quaternion.Slerp(startRotation, endRotation, t);
+            yield return null;
+        }
+
+        cameraToAnimate.transform.position = endPosition;
+        cameraToAnimate.transform.rotation = endRotation;
     }
 
     void SetSelectionView()
@@ -583,6 +682,33 @@ public class BciGameTrialManager : MonoBehaviour
             targetRotation,
             driveCameraRotateSpeed * Time.deltaTime
         );
+    }
+
+    void GetDriveCameraPose(out Vector3 targetPosition, out Quaternion targetRotation)
+    {
+        if (driveCameraTarget == null)
+        {
+            targetPosition = driveCamera != null ? driveCamera.transform.position : Vector3.zero;
+            targetRotation = driveCamera != null ? driveCamera.transform.rotation : Quaternion.identity;
+            return;
+        }
+
+        targetPosition =
+            driveCameraTarget.position
+            + driveCameraTarget.right * driveCameraOffset.x
+            + driveCameraTarget.up * driveCameraOffset.y
+            + driveCameraTarget.forward * driveCameraOffset.z;
+
+        Vector3 lookPosition =
+            driveCameraTarget.position
+            + driveCameraTarget.right * driveCameraLookOffset.x
+            + driveCameraTarget.up * driveCameraLookOffset.y
+            + driveCameraTarget.forward * driveCameraLookOffset.z;
+
+        Vector3 lookDirection = lookPosition - targetPosition;
+        targetRotation = lookDirection.sqrMagnitude > 0.0001f
+            ? Quaternion.LookRotation(lookDirection, Vector3.up)
+            : Quaternion.identity;
     }
 
     void LateUpdate()

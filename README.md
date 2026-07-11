@@ -1,6 +1,9 @@
 # BCI Unity Game
 ## Demo
+Built a real-time cVEP EEG-based system that identifies the visual target attended by a user and transmits the decoded result to a Unity simulation environment, where a vehicle autonomously moves to the corresponding target.
+
 https://github.com/user-attachments/assets/c96b3f29-19fc-4997-954b-4203ca7358d5
+
 
 
 This project uses Unity as the game frontend and a Python cVEP pipeline as the decoder/speller backend.

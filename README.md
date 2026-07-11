@@ -1,4 +1,7 @@
 # BCI Unity Game
+## Demo
+
+[Watch the demo video](demo.mov)
 
 This project uses Unity as the game frontend and a Python cVEP pipeline as the decoder/speller backend.
 

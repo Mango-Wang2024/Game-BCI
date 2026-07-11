@@ -1,6 +1,6 @@
 # BCI Unity Game
 ## Demo
-Built a real-time cVEP EEG-based system that identifies the visual target attended by a user and transmits the decoded result to a Unity simulation environment, where a vehicle autonomously moves to the corresponding target.
+Built a real-time cVEP-based brain-computer interface (BCI) system that detects the visual target a user is focusing on and sends the decoded command to a Unity simulation, where a vehicle automatically navigates to the selected target.
 
 https://github.com/user-attachments/assets/c96b3f29-19fc-4997-954b-4203ca7358d5
 
